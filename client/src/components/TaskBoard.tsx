@@ -64,13 +64,22 @@ function TaskCard({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-        <Text
-          style={{ fontSize: 13 }}
-          delete={task.status === 'done'}
-          type={task.status === 'done' ? 'secondary' : undefined}
-        >
-          {task.title}
-        </Text>
+        {/* 编号与标题分列两个 Text：编号不跟随「已完成」的删除线，它是标识不是内容；
+            flexShrink:0 保证长标题换行时编号不被挤压 */}
+        <div style={{ display: 'flex', gap: 4, minWidth: 0 }}>
+          <Text
+            style={{ fontSize: 12, color: token.colorTextTertiary, flexShrink: 0, lineHeight: '20px' }}
+          >
+            #{task.id}
+          </Text>
+          <Text
+            style={{ fontSize: 13 }}
+            delete={task.status === 'done'}
+            type={task.status === 'done' ? 'secondary' : undefined}
+          >
+            {task.title}
+          </Text>
+        </div>
         {/* ⋮ 阻止冒泡，避免触发卡片点击与拖拽 */}
         <span onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
           <Dropdown
