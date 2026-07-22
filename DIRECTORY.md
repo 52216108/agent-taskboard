@@ -92,7 +92,8 @@
 | 文件 | 职责 |
 |------|------|
 | `README.md` / `README.zh-CN.md` | 项目说明（英文主 / 中文），含安全说明与 agent 接入 |
-| `AGENTS.md` | 在本仓库工作的 coding agent 规则（Codex 自动读取） |
+| `AGENTS.md` | 在本仓库工作的 coding agent 通用规则（Codex 自动读取） |
+| `CLAUDE.md` | Claude Code 专属补充：PR 流程、提交前检查、索引同步清单、红线 |
 | `CONTRIBUTING.md` | 贡献指南：环境、提交前检查、安全敏感区域 |
 | `SECURITY.md` | 漏洞报告方式 + 威胁模型（防什么 / 不防什么） |
 | `LICENSE` | MIT |
