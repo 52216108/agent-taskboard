@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 模板：占位符由 deploy/setup.sh 渲染后写入 ~/Library/LaunchAgents/ -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.projectboard</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@@NODE@@</string>
+    <string>--import</string>
+    <string>tsx</string>
+    <string>@@SERVER_DIR@@/src/index.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>@@SERVER_DIR@@</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- 只绑 loopback：远程由 `tailscale serve` 做隧道，服务本身不暴露公网 -->
+    <key>BOARD_HOST</key>
+    <string>127.0.0.1</string>
+    <key>BOARD_PORT</key>
+    <string>7788</string>
+    <!-- 写操作令牌（远程访问需要）；setup.sh 生成 -->
+    <key>BOARD_TOKEN</key>
+    <string>@@TOKEN@@</string>
+    <!-- 扫描根之外、需单独纳入的项目路径（逗号分隔）。个人路径写在这里，不进代码默认值 -->
+    <key>BOARD_PROJECTS</key>
+    <string>@@EXTRA_PROJECTS@@</string>
+    <!-- 额外放行的 Host（逗号分隔）：经反代/隧道访问时填对外域名，否则被反 DNS rebinding 防线 403 -->
+    <key>BOARD_ALLOWED_HOSTS</key>
+    <string>@@ALLOWED_HOSTS@@</string>
+    <key>PATH</key>
+    <string>@@PATH@@</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- 崩溃日志落盘（评审要求显式配置）-->
+  <key>StandardOutPath</key>
+  <string>@@LOG_DIR@@/board.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>@@LOG_DIR@@/board.err.log</string>
+</dict>
+</plist>

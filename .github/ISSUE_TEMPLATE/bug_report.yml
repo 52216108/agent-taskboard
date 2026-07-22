@@ -1,0 +1,45 @@
+name: Bug report
+description: 报告一个问题 / Report a problem
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么 / What happened
+      description: 期望行为与实际行为 / What you expected vs. what you got
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 服务端日志或 `task` CLI 的输出 / Server log or `task` CLI output
+      render: shell
+
+  - type: input
+    id: env
+    attributes:
+      label: 环境 / Environment
+      description: 操作系统 + Node 版本 / OS + Node version
+      placeholder: macOS 15.2, Node 22.12.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: layout
+    attributes:
+      label: 项目目录结构（仅扫描相关问题）/ Project layout (scanning issues only)
+      description: |
+        嵌套仓库、软链接、没有 git remote 等结构会影响扫描行为。
+        Nested repos, symlinks, or a missing git remote affect scanning behavior.

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# agent-taskboard CLI 包装器：用 server 的 tsx 运行 cli/task.ts。
+# 安装（可选）：ln -sf "$(pwd)/bin/board" ~/.local/bin/board
+set -euo pipefail
+# 解析软链，定位到真实脚本所在（支持把本文件软链到 PATH）
+SOURCE="${BASH_SOURCE[0]}"
+_hops=0
+while [ -L "$SOURCE" ]; do
+  _hops=$((_hops + 1))
+  [ "$_hops" -gt 20 ] && { echo "board: symlink 层级过深" >&2; exit 1; }
+  LINKDIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$LINKDIR/$SOURCE"
+done
+DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+ORIG_PWD="$PWD"    # 保存用户原始 cwd（下面会 cd 到 server，CLI 需要它解析 `task here`）
+cd "$DIR/server"   # 让 node 从 server/node_modules 解析 tsx
+exec env BOARD_CWD="$ORIG_PWD" node --import tsx "$DIR/cli/task.ts" "$@"

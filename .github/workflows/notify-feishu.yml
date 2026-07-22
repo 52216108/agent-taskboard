@@ -1,0 +1,32 @@
+# push 到 main 时向飞书群机器人发送推送摘要。
+# 机器人地址存在仓库 Secret FEISHU_WEBHOOK（Settings → Secrets and variables → Actions），不落代码。
+name: 推送通知到飞书
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    # 只在上游仓库跑：fork 没有 FEISHU_WEBHOOK secret，否则每次 push 都会红一个 Actions
+    if: github.repository == '52216108/agent-taskboard'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发送飞书通知
+        # 提交信息经 env 传入（不内插进脚本），避免含引号/反引号的 commit message 注入 shell
+        env:
+          WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          PUSHER: ${{ github.actor }}
+          COMPARE: ${{ github.event.compare }}
+        run: |
+          TEXT=$(jq -rn \
+            --arg repo "$REPO" --arg branch "$BRANCH" --arg pusher "$PUSHER" --arg compare "$COMPARE" \
+            --argjson commits "$COMMITS_JSON" '
+            "📦 \($repo) 收到推送\n分支 \($branch) · 推送者 \($pusher)\n"
+            + ($commits | map("· " + (.message | split("\n")[0])) | join("\n"))
+            + "\n对比：\($compare)"')
+          jq -n --arg text "$TEXT" '{msg_type: "text", content: {text: $text}}' \
+            | curl -sS --fail-with-body -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK"

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+client/dist/
+server/dist/
+
+# 验证/调试产物
+/board-*.png
+.playwright-mcp/
+.taskignore
+/p6-*.png
+
+# codegraph 本地索引（按全局约定不提交）
+.codegraph/
+
+# Claude Code skill 安装锁文件（个人环境产物，与本项目无关）
+skills-lock.json

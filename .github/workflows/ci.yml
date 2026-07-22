@@ -1,0 +1,43 @@
+# 后端类型检查 + 单测，前端构建。不使用任何事件输入，无注入面。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 是最低支持版本，24 是当前 LTS——better-sqlite3 的预编译包覆盖情况随 Node 大版本变化，
+        # 只测一个版本会漏掉「新用户 npm install 掉进 node-gyp 源码编译」这类问题
+        node-version: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: 安装后端依赖
+        working-directory: server
+        run: npm ci
+
+      - name: 类型检查
+        working-directory: server
+        run: npm run typecheck
+
+      - name: 单元测试
+        working-directory: server
+        run: npm test
+
+      - name: 安装前端依赖
+        working-directory: client
+        run: npm ci
+
+      - name: 构建前端
+        working-directory: client
+        run: npm run build

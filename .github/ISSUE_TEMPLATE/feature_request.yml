@@ -1,0 +1,29 @@
+name: Feature request
+description: 提一个想法 / Suggest an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题 / What problem are you solving
+      description: 请描述实际场景，而不是直接给方案 / Describe the actual situation, not just the solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 设想的做法 / What you have in mind
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: 相关的 coding agent / Which coding agent
+      description: 与具体 agent 无关就选 N/A / Pick N/A if it's agent-independent
+      options:
+        - N/A
+        - Claude Code
+        - Codex
+        - 其他 / Other
+    validations:
+      required: true

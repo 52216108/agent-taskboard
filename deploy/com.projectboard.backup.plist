@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 模板：每日定时备份看板 DB（轮转保留最近 N 份），由 deploy/setup.sh 渲染后写入 ~/Library/LaunchAgents/ -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.projectboard.backup</string>
+
+  <!-- 复用 CLI 的 backup 子命令：在线一致快照 + 轮转清理 -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>@@NODE@@</string>
+    <string>--import</string>
+    <string>tsx</string>
+    <string>@@ROOT@@/cli/task.ts</string>
+    <string>backup</string>
+  </array>
+
+  <!-- 工作目录设为 server，让 tsx / better-sqlite3 从 server/node_modules 解析（同 bin/task）-->
+  <key>WorkingDirectory</key>
+  <string>@@SERVER_DIR@@</string>
+
+  <!-- 备份与主服务共用默认 DB(~/.project-board/board.db)；若给主服务设了 BOARD_DB，此处须同步，否则备份错库 -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@@PATH@@</string>
+  </dict>
+
+  <!-- 每日 04:00 跑一次；跑时若机器睡着，launchd 会在唤醒后补跑 -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>@@LOG_DIR@@/backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>@@LOG_DIR@@/backup.log</string>
+</dict>
+</plist>
