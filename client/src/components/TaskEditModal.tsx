@@ -174,22 +174,28 @@ export default function TaskEditModal({
       title={`任务 #${task.id}`}
       open={open}
       onCancel={onClose}
-      footer={[
-        <Button key="archive" danger onClick={archive} style={{ float: 'left' }}>
-          归档
-        </Button>,
-        task.status === 'review' && (
-          <Button key="reject" danger onClick={() => setRejectOpen((v) => !v)} style={{ float: 'left' }}>
-            打回…
-          </Button>
-        ),
-        <Button key="cancel" onClick={onClose}>
-          取消
-        </Button>,
-        <Button key="save" type="primary" loading={saving} onClick={save}>
-          保存
-        </Button>,
-      ]}
+      footer={
+        // 左组（归档/打回）与右组（取消/保存）用 flex 分列；窄宽度整组换行，
+        // 不用 float——float 会脱离流、在 footer 变窄时把右侧按钮挤到第二行。
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <Space wrap>
+            <Button danger onClick={archive}>
+              归档
+            </Button>
+            {task.status === 'review' && (
+              <Button danger onClick={() => setRejectOpen((v) => !v)}>
+                打回…
+              </Button>
+            )}
+          </Space>
+          <Space>
+            <Button onClick={onClose}>取消</Button>
+            <Button type="primary" loading={saving} onClick={save}>
+              保存
+            </Button>
+          </Space>
+        </div>
+      }
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12} onPaste={handlePaste}>
         {task.rejectReason && (
