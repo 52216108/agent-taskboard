@@ -26,7 +26,7 @@ import {
   type NewTask,
   type TaskPatch,
 } from './repo';
-import type { ProjectInfo, TaskStatus, TaskPriority, TaskType } from './types';
+import type { ProjectInfo, TaskStatus, TaskPriority, TaskType, SubTask } from './types';
 import {
   saveImage,
   deleteImage,
@@ -41,6 +41,29 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATUSES: TaskStatus[] = ['collected', 'backlog', 'todo', 'doing', 'review', 'done', 'archived'];
 const PRIORITIES: TaskPriority[] = ['p0', 'p1', 'p2', 'p3'];
 const TASK_TYPES: TaskType[] = ['feature', 'bug', 'optimize'];
+const MAX_SUBTASKS = 50;
+
+/** 校验子任务清单（客户端整组提交）：数组 ≤50，每项 {id:int, title:trim 1..200, done:bool}；就地 trim 标题。 */
+function validateSubtasks(v: unknown): { error: string } | { subtasks: SubTask[] } {
+  if (!Array.isArray(v)) return { error: 'bad subtasks (need array)' };
+  if (v.length > MAX_SUBTASKS) return { error: `too many subtasks (max ${MAX_SUBTASKS})` };
+  const out: SubTask[] = [];
+  const seen = new Set<number>(); // id 去重：重复 id 会让前端勾选/删除按 id 命中多行
+  for (const it of v) {
+    if (typeof it !== 'object' || it === null) return { error: 'bad subtask item' };
+    const s = it as Record<string, unknown>;
+    if (!Number.isInteger(s.id) || (s.id as number) <= 0) return { error: 'bad subtask id (need positive integer)' };
+    if (seen.has(s.id as number)) return { error: 'duplicate subtask id' };
+    seen.add(s.id as number);
+    if (typeof s.title !== 'string') return { error: 'bad subtask title' };
+    const title = s.title.trim();
+    if (title.length < 1 || title.length > 200)
+      return { error: 'bad subtask title (need 1-200 chars)' };
+    if (typeof s.done !== 'boolean') return { error: 'bad subtask done' };
+    out.push({ id: s.id as number, title, done: s.done });
+  }
+  return { subtasks: out };
+}
 
 // 仅缓存昂贵的原始扫描结果（git/fs）；DB 覆盖/任务计数在每次请求时 enrich（廉价）。
 let rawCache: { at: number; data: ProjectInfo[] } | null = null;
@@ -264,6 +287,11 @@ app.patch<{ Params: { id: string }; Body: TaskPatch }>('/api/tasks/:id', async (
     body.assignee = body.assignee.trim();
     if (body.assignee.length < 1 || body.assignee.length > 32)
       return reply.code(400).send({ error: 'bad assignee (need 1-32 chars)' });
+  }
+  if (body.subtasks !== undefined) {
+    const r = validateSubtasks(body.subtasks);
+    if ('error' in r) return reply.code(400).send({ error: r.error });
+    body.subtasks = r.subtasks; // 用 trim 归一后的数组落库
   }
   const updated = updateTask(id, body);
   if (!updated) return reply.code(404).send({ error: 'task not found' });

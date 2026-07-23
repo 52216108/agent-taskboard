@@ -43,6 +43,7 @@ P1 无库；P2 起引入。**SQLite 无原生列注释，故本文件与 schema.
 | reject_reason | TEXT NULL | 最近一次验收打回原因（打回接口 review→todo 时写入）；任务重新置 review 或 done 时自动清空；NULL=无打回在身。老库由 db.ts 补列 |
 | tags | TEXT NULL | JSON 字符串数组 |
 | images | TEXT NULL | 任务附图，JSON 数组 `[{name,addedAt}]`：name=磁盘文件名(`<uuid>.<ext>`)，绝对路径=`~/.project-board/task-images/<task.id>/<name>`；NULL=无图。老库由 db.ts migrate ALTER 补列 |
+| subtasks | TEXT NULL | 子任务清单，JSON 数组 `[{id,title,done}]`：id=父内唯一整数、title=标题(1..200)、done=是否完成；轻量检查项非独立 task 行，客户端整组经 PATCH 提交；NULL=无子任务。老库由 db.ts migrate ALTER 补列 |
 | source | TEXT | `manual`(手动)/`todo_md`(从 todo.md 导入) |
 | todo_fingerprint | TEXT NULL | 导入去重指纹 sha1(project_key+段+文本)[:16]；仅 source=todo_md |
 | sort_order | INTEGER | 列内排序 |

@@ -66,6 +66,7 @@ the Claude Code skill.
 **Task board**
 - Six columns: collected → backlog → todo → doing → review → done
 - Priority / type (feature · bug · optimize) / assignee / due date / image attachments
+- Subtasks: a lightweight checklist per task (progress on the card, ticked off in the detail view, listed under `board here`)
 - Rejection flow: bouncing a task from review back to todo carries a reason, and that reason is fed
   back into `board here` output where the agent will see it
 - Cross-project global task view

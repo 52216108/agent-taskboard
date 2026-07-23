@@ -87,7 +87,7 @@
 | tags | string[] | 否 | 标签 |
 | status | `collected`\|`backlog`\|`todo`\|`doing`\|`review`\|`done`\|`archived` | 否 | 看板列；默认 `collected`(已收集)；非法 → 400 |
 
-**PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`status=done` 不可经 PATCH——只能由 accept 接口写（→400）。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review(PATCH) 或 accept 时清空。
+**PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder` 与 `subtasks`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`status=done` 不可经 PATCH——只能由 accept 接口写（→400）。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review(PATCH) 或 accept 时清空。`subtasks`=子任务清单（客户端整组提交）：数组 ≤50，每项 `{id:整数, title:trim 后 1..200, done:布尔}`，不合法 → 400。
 
 ---
 

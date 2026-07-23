@@ -42,6 +42,8 @@ export function migrate(db: Database.Database): void {
     // 老库补验收审计列：accepted_at=人工验收(→done)时间、accepted_by=验收人署名（自报），均 NULL=未经 accept 端点
     'ALTER TABLE task ADD COLUMN accepted_at TEXT',
     'ALTER TABLE task ADD COLUMN accepted_by TEXT',
+    // 老库补子任务清单列；JSON 数组 [{id,title,done}]，NULL=无子任务
+    'ALTER TABLE task ADD COLUMN subtasks TEXT',
   ];
   for (const sql of adds) {
     try {

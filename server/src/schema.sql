@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS task (
   reject_reason    TEXT,                              -- 最近一次验收打回原因（review→todo 时写入，重新置 review/done 自动清空），NULL=无打回在身
   tags             TEXT,                              -- 标签，JSON 字符串数组，可空
   images           TEXT,                              -- 任务附图，JSON 数组 [{name,addedAt}]：name=磁盘文件名(<uuid>.<ext>)，addedAt=ISO8601；绝对路径=~/.project-board/task-images/<task.id>/<name>；NULL=无图
+  subtasks         TEXT,                              -- 子任务清单，JSON 数组 [{id,title,done}]：id=父内唯一整数、title=标题、done=是否完成；轻量检查项非独立 task 行；NULL=无子任务
   source           TEXT    NOT NULL DEFAULT 'manual', -- manual(手动新建)/todo_md(从 todo.md 导入快照)
   todo_fingerprint TEXT,                              -- 导入去重指纹=sha1(project_key+段+文本)；仅 source=todo_md 有值
   sort_order       INTEGER NOT NULL DEFAULT 0,        -- 列内排序权重，越小越靠前

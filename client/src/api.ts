@@ -6,6 +6,7 @@ import type {
   TaskStatus,
   TaskPriority,
   TaskType,
+  SubTask,
   GlobalTask,
 } from './types';
 
@@ -92,6 +93,7 @@ export interface TaskPatch {
   taskType?: TaskType;
   dueDate?: string | null;
   assignee?: string | null;
+  subtasks?: SubTask[];
 }
 export const updateTask = (id: number, body: TaskPatch): Promise<Task> =>
   patch<Task>(`/api/tasks/${id}`, body);

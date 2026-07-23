@@ -256,6 +256,84 @@ describe('请求校验（不依赖扫描的快速分支）', () => {
     expect(second.json().completedAt).toBe(completedAt); // 完成时间不变
     expect(second.json().status).toBe('done');
   });
+
+  // ── 子任务清单（board #354）──
+  it('新建任务 subtasks 默认空数组', () => {
+    const task = createTask('k', '/p', { title: '父任务' });
+    expect(task.subtasks).toEqual([]);
+  });
+
+  it('PATCH /api/tasks/:id subtasks 正常 → 200，落库可取回（trim 标题）', async () => {
+    const task = createTask('k', '/p', { title: '父任务' });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: {
+        subtasks: [
+          { id: 1, title: ' 写迁移 ', done: true },
+          { id: 2, title: '改 API', done: false },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().subtasks).toEqual([
+      { id: 1, title: '写迁移', done: true }, // trim 后入库
+      { id: 2, title: '改 API', done: false },
+    ]);
+  });
+
+  it('PATCH subtasks 非数组 → 400', async () => {
+    const task = createTask('k', '/p', { title: '父' });
+    const res = await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload: { subtasks: 'nope' } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('PATCH subtasks 空标题 → 400', async () => {
+    const task = createTask('k', '/p', { title: '父' });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { subtasks: [{ id: 1, title: '   ', done: false }] },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('PATCH subtasks 缺 done 字段 → 400', async () => {
+    const task = createTask('k', '/p', { title: '父' });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { subtasks: [{ id: 1, title: 'x' }] },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('PATCH subtasks 超 50 条 → 400', async () => {
+    const task = createTask('k', '/p', { title: '父' });
+    const many = Array.from({ length: 51 }, (_, i) => ({ id: i + 1, title: `s${i}`, done: false }));
+    const res = await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload: { subtasks: many } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('PATCH subtasks 重复 id → 400（防前端 key 撞车）', async () => {
+    const task = createTask('k', '/p', { title: '父' });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { subtasks: [{ id: 1, title: 'a', done: false }, { id: 1, title: 'b', done: false }] },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('PATCH subtasks id 非正整数 → 400', async () => {
+    const task = createTask('k', '/p', { title: '父' });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { subtasks: [{ id: 0, title: 'a', done: false }] },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe('鉴权门（设 BOARD_TOKEN 时）', () => {
