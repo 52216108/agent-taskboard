@@ -3,7 +3,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { TaskType, TaskImage } from '../server/src/types'; // 类型复用，type-only 不引入运行时依赖
+import type { TaskType, TaskImage, SubTask } from '../server/src/types'; // 类型复用，type-only 不引入运行时依赖
 import { taskImagePath } from '../server/src/task-images';
 
 // 管道（如 | head）提前关闭时安静退出，不抛 EPIPE
@@ -120,6 +120,7 @@ interface Detail extends P {
     assignee?: string | null;
     rejectReason?: string | null;
     images?: TaskImage[]; // 旧服务（未含 images 列）可能不返回此字段，故 optional + 调用处兜底
+    subtasks?: SubTask[]; // 同上，旧服务可能不返回
   }>;
 }
 
@@ -143,13 +144,19 @@ async function showProject(name: string, json = false) {
       t.taskType === 'bug' ? C.red('[Bug] ') : t.taskType === 'optimize' ? C.yellow('[优化] ') : '';
     const cam = t.images?.length ? C.dim(` 📷${t.images.length}`) : '';
     const who = t.assignee ? C.dim(` @${t.assignee}`) : '';
-    console.log(`  ${mark} ${stat} [${t.priority.toUpperCase()}] ${ty}#${t.id} ${t.title}${cam}${who}`);
+    const subs = t.subtasks ?? [];
+    const subCount = subs.length ? C.dim(` (${subs.filter((s) => s.done).length}/${subs.length})`) : '';
+    console.log(`  ${mark} ${stat} [${t.priority.toUpperCase()}] ${ty}#${t.id} ${t.title}${cam}${who}${subCount}`);
     if (t.rejectReason && t.rejectReason.trim()) {
       // 上轮验收打回原因——agent 领任务时优先消化这里
       for (const line of t.rejectReason.split('\n')) console.log(C.yellow(`      ⤺ 打回: ${line}`));
     }
     if (t.description && t.description.trim()) {
       for (const line of t.description.split('\n')) console.log(C.dim(`      ${line}`));
+    }
+    // 子任务清单缩进列出（☑ 已完成 / ☐ 未完成）
+    for (const s of subs) {
+      console.log(C.dim(`      ${s.done ? '☑' : '☐'} ${s.title}`));
     }
     for (const img of t.images ?? []) {
       console.log(C.dim(`      🖼  ${taskImagePath(t.id, img.name)}`));

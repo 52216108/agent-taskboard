@@ -7,6 +7,7 @@ import {
   DatePicker,
   Space,
   Button,
+  Checkbox,
   Alert,
   App as AntApp,
   Typography,
@@ -16,8 +17,8 @@ import {
 } from 'antd';
 import type { UploadProps } from 'antd';
 import dayjs from 'dayjs';
-import { UploadOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { Task, TaskPriority, TaskStatus, TaskType, TaskImage } from '../types';
+import { UploadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import type { Task, TaskPriority, TaskStatus, TaskType, TaskImage, SubTask } from '../types';
 import {
   updateTask,
   rejectTask,
@@ -65,6 +66,8 @@ export default function TaskEditModal({
   const [assignee, setAssignee] = useState('');
   const [saving, setSaving] = useState(false);
   const [images, setImages] = useState<TaskImage[]>([]);
+  const [subtasks, setSubtasks] = useState<SubTask[]>([]);
+  const [newSubtask, setNewSubtask] = useState('');
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
@@ -80,6 +83,8 @@ export default function TaskEditModal({
     setDue(task.dueDate);
     setAssignee(task.assignee ?? '');
     setImages(task.images ?? []);
+    setSubtasks(task.subtasks ?? []);
+    setNewSubtask('');
     setRejectOpen(false);
     setRejectReason('');
   }, [task]);
@@ -96,6 +101,11 @@ export default function TaskEditModal({
       return;
     }
     setSaving(true);
+    // 输入框里还没回车/点＋的待添加子任务，保存时一并折入（否则鼠标点保存会静默丢失这行）
+    const pending = newSubtask.trim();
+    const finalSubs = pending
+      ? [...subtasks, { id: subtasks.reduce((m, s) => Math.max(m, s.id), 0) + 1, title: pending, done: false }]
+      : subtasks;
     // done 不能经 PATCH 写入——仅当状态确有变更且非 done 时随 patch 提交；变为 done 走 accept 端点。
     // 编辑已 done 任务的其它字段时 status 未变 → 不带 status，避免触碰 done 门禁。
     const statusChanged = status !== task.status;
@@ -106,6 +116,8 @@ export default function TaskEditModal({
       taskType,
       dueDate: due,
       assignee: assignee.trim() || null,
+      // trim + 丢弃空标题子任务（后端要求 title 1..200），避免误留空行触发 400
+      subtasks: finalSubs.map((s) => ({ ...s, title: s.title.trim() })).filter((s) => s.title.length > 0),
     };
     if (statusChanged && status !== 'done') patch.status = status;
     updateTask(task.id, patch)
@@ -181,6 +193,21 @@ export default function TaskEditModal({
       message.error(`删除失败：${String((e as Error).message ?? e)}`);
     }
   };
+
+  // ── 子任务（本地编辑，随「保存」整组提交）──
+  const addSubtask = () => {
+    const t = newSubtask.trim();
+    if (!t) return;
+    const id = subtasks.reduce((m, s) => Math.max(m, s.id), 0) + 1; // 父任务内唯一
+    setSubtasks((prev) => [...prev, { id, title: t, done: false }]);
+    setNewSubtask('');
+  };
+  const toggleSubtask = (id: number, done: boolean) =>
+    setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, done } : s)));
+  const renameSubtask = (id: number, title: string) =>
+    setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
+  const removeSubtask = (id: number) => setSubtasks((prev) => prev.filter((s) => s.id !== id));
+  const doneCount = subtasks.filter((s) => s.done).length;
 
   return (
     <Modal
@@ -258,6 +285,46 @@ export default function TaskEditModal({
             rows={4}
             placeholder="可写清楚验收标准、相关文件、注意事项…"
           />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+            子任务{subtasks.length > 0 ? ` · ${doneCount}/${subtasks.length}` : ''}
+          </Text>
+          <Space direction="vertical" style={{ width: '100%' }} size={4}>
+            {subtasks.map((s) => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Checkbox checked={s.done} onChange={(e) => toggleSubtask(s.id, e.target.checked)} />
+                <Input
+                  size="small"
+                  value={s.title}
+                  onChange={(e) => renameSubtask(s.id, e.target.value)}
+                  onPressEnter={save}
+                  style={{
+                    flex: 1,
+                    textDecoration: s.done ? 'line-through' : undefined,
+                    color: s.done ? token.colorTextTertiary : undefined,
+                  }}
+                />
+                <Button
+                  size="small"
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => removeSubtask(s.id)}
+                />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input
+                size="small"
+                placeholder="添加子任务，回车添加"
+                value={newSubtask}
+                onChange={(e) => setNewSubtask(e.target.value)}
+                onPressEnter={addSubtask}
+              />
+              <Button size="small" icon={<PlusOutlined />} onClick={addSubtask} />
+            </div>
+          </Space>
         </div>
         <Space size={12} wrap>
           <div>

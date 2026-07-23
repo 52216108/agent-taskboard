@@ -56,6 +56,13 @@ export interface TaskImage {
   addedAt: string;
 }
 
+/** 子任务（父任务里的轻量检查项，非独立 task 行）。 */
+export interface SubTask {
+  id: number; // 父任务内唯一，供勾选/删除/React key
+  title: string;
+  done: boolean;
+}
+
 export interface Task {
   id: number;
   projectId: number;
@@ -69,6 +76,7 @@ export interface Task {
   rejectReason: string | null;
   tags: string[];
   images: TaskImage[];
+  subtasks: SubTask[]; // 子任务清单（轻量检查项）；空数组=无
   source: 'manual' | 'todo_md';
   sortOrder: number;
   createdAt: string;

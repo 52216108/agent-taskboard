@@ -131,6 +131,11 @@ function TaskCard({
             来自 todo.md
           </Tag>
         )}
+        {task.subtasks.length > 0 && (
+          <Text style={{ fontSize: 11, color: token.colorTextTertiary }}>
+            ☑ {task.subtasks.filter((s) => s.done).length}/{task.subtasks.length}
+          </Text>
+        )}
         {task.dueDate && (
           <Text style={{ fontSize: 11, color: token.colorTextTertiary }}>
             <CalendarOutlined /> {task.dueDate.slice(0, 10)}

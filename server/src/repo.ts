@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getDb } from './db';
-import type { ProjectInfo, Task, TaskImage, TaskStatus, TaskPriority, TaskType, TodoItem } from './types';
+import type { ProjectInfo, Task, TaskImage, SubTask, TaskStatus, TaskPriority, TaskType, TodoItem } from './types';
 
 const now = () => new Date().toISOString();
 
@@ -30,6 +30,7 @@ interface TaskRow {
   reject_reason: string | null;
   tags: string | null;
   images: string | null;
+  subtasks: string | null;
   source: 'manual' | 'todo_md';
   todo_fingerprint: string | null;
   sort_order: number;
@@ -54,6 +55,7 @@ function rowToTask(r: TaskRow): Task {
     rejectReason: r.reject_reason,
     tags: r.tags ? (JSON.parse(r.tags) as string[]) : [],
     images: r.images ? (JSON.parse(r.images) as TaskImage[]) : [],
+    subtasks: r.subtasks ? (JSON.parse(r.subtasks) as SubTask[]) : [],
     source: r.source,
     sortOrder: r.sort_order,
     createdAt: r.created_at,
@@ -377,6 +379,7 @@ export interface TaskPatch {
   dueDate?: string | null;
   assignee?: string | null;
   tags?: string[];
+  subtasks?: SubTask[];
   sortOrder?: number;
 }
 
@@ -397,6 +400,7 @@ export function updateTask(id: number, patch: TaskPatch): Task | null {
   if (patch.dueDate !== undefined) push('due_date', patch.dueDate);
   if (patch.assignee !== undefined) push('assignee', patch.assignee);
   if (patch.tags !== undefined) push('tags', JSON.stringify(patch.tags));
+  if (patch.subtasks !== undefined) push('subtasks', JSON.stringify(patch.subtasks));
   if (patch.sortOrder !== undefined) push('sort_order', patch.sortOrder);
   if (patch.status !== undefined) {
     push('status', patch.status);

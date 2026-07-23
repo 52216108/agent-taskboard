@@ -87,6 +87,13 @@ export interface TaskImage {
   addedAt: string; // ISO8601 添加时间
 }
 
+/** 子任务（父任务里的轻量检查项，非独立 task 行）。 */
+export interface SubTask {
+  id: number;      // 父任务内唯一（客户端取 max(现有 id)+1 分配），供勾选/删除/React key 定位
+  title: string;   // 子任务标题
+  done: boolean;   // 是否完成
+}
+
 /** 受管任务（看板卡片），存 SQLite，区别于只读的 tasks/todo.md。 */
 export interface Task {
   id: number;
@@ -101,6 +108,7 @@ export interface Task {
   rejectReason: string | null;
   tags: string[];
   images: TaskImage[];
+  subtasks: SubTask[]; // 子任务清单（轻量检查项）；空数组=无子任务
   source: 'manual' | 'todo_md';
   sortOrder: number;
   createdAt: string;
