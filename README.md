@@ -48,9 +48,13 @@ summarized as the session grows, and it's gone when the session ends. An externa
 - **One task, one commit.** Task boundaries become commit boundaries, so review and rollback stay per-task.
 
 Be clear on what's enforced and what isn't. The API validates status values and restricts rejection to
-tasks under review. But *"agents claim only `todo`, and hand work back at `review` instead of marking it
-`done`"* is a **workflow convention** carried in `AGENTS.md` and the Claude Code skill — the API will not
-refuse an agent that ignores it. Acceptance is meant to stay a human action; today that's a norm, not a lock.
+tasks under review. Marking a task `done` no longer goes through the general `PATCH` — it is refused there
+and must use a dedicated `POST /api/tasks/:id/accept`, which stamps `accepted_at`/`accepted_by`. That makes
+completion a deliberate, auditable action and stops a stray status update from silently closing a task —
+but it is a **guardrail, not a lock**: this is a single-user tool where the human and the agent share one
+token, so nothing technically stops an agent from calling `accept` itself. That agents claim only `todo`
+and hand work back at `review` rather than closing it remains a **workflow convention** in `AGENTS.md` and
+the Claude Code skill.
 
 ## Features
 

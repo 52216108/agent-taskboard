@@ -18,7 +18,15 @@ import type { UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { Task, TaskPriority, TaskStatus, TaskType, TaskImage } from '../types';
-import { updateTask, rejectTask, uploadTaskImage, deleteTaskImage, taskImageUrl } from '../api';
+import {
+  updateTask,
+  rejectTask,
+  acceptTask,
+  uploadTaskImage,
+  deleteTaskImage,
+  taskImageUrl,
+  type TaskPatch,
+} from '../api';
 import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_OPTIONS } from '../util';
 
 const { Text } = Typography;
@@ -88,15 +96,20 @@ export default function TaskEditModal({
       return;
     }
     setSaving(true);
-    updateTask(task.id, {
+    // done 不能经 PATCH 写入——仅当状态确有变更且非 done 时随 patch 提交；变为 done 走 accept 端点。
+    // 编辑已 done 任务的其它字段时 status 未变 → 不带 status，避免触碰 done 门禁。
+    const statusChanged = status !== task.status;
+    const patch: TaskPatch = {
       title: title.trim(),
       description: description.trim() || null,
       priority,
       taskType,
-      status,
       dueDate: due,
       assignee: assignee.trim() || null,
-    })
+    };
+    if (statusChanged && status !== 'done') patch.status = status;
+    updateTask(task.id, patch)
+      .then(() => (statusChanged && status === 'done' ? acceptTask(task.id) : null))
       .then(() => {
         onSaved();
         onClose();

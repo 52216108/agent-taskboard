@@ -48,6 +48,8 @@ P1 无库；P2 起引入。**SQLite 无原生列注释，故本文件与 schema.
 | sort_order | INTEGER | 列内排序 |
 | created_at / updated_at | TEXT | ISO8601 |
 | completed_at | TEXT NULL | status 变 done 时写入，离开 done 清空 |
+| accepted_at | TEXT NULL | 人工验收(→done)通过时间 ISO8601；仅经 `POST /tasks/:id/accept` 写入，离开 done 清空；NULL=未经验收端点（历史 done 或未完成）。老库由 db.ts migrate ALTER 补列 |
+| accepted_by | TEXT NULL | 验收人署名（自报，如 CLI `--as`/BOARD_ACTOR）；单用户模型下无法强制鉴别，仅供审计；NULL=未提供。老库由 db.ts migrate ALTER 补列 |
 
 **索引**：`idx_task_project(project_id)`；`idx_task_fingerprint(project_id, todo_fingerprint) WHERE todo_fingerprint IS NOT NULL`（唯一，支撑 INSERT OR IGNORE 去重）。
 

@@ -66,8 +66,9 @@
 | GET | `/api/projects/:name/tasks` | 免 | 某项目的受管任务；`?includeArchived=1` 含归档 |
 | GET | `/api/tasks` | 免 | 跨项目全局任务（附 projectName/key/path/dir），工作台视图用；`?includeArchived=1` |
 | POST | `/api/projects/:name/tasks` | 写 | 新建受管任务（`source=manual`） |
-| PATCH | `/api/tasks/:id` | 写 | 改任务字段 / 状态流转（done 写 completed_at；置 review/done 自动清空 reject_reason） |
+| PATCH | `/api/tasks/:id` | 写 | 改任务字段 / 状态流转；**拒绝 `status=done`（→400，指向 accept 端点）**；置 review 自动清空 reject_reason；离开 done 清空 completed_at/accepted_at/accepted_by |
 | POST | `/api/tasks/:id/reject` | 写 | 验收打回：仅 review 态可打回 → todo 并记录原因；body `{reason}`（trim 后 1..500 字符），非 review → 400 |
+| POST | `/api/tasks/:id/accept` | 写 | 验收通过 → done（**唯一置 done 入口**）：写 completed_at/accepted_at、清 reject_reason；body `{by?}`=验收人署名（可空，trim 后 1..32 字符；单用户模型下自报、仅审计）。宽松语义：任意状态皆可验收通过；任务不存在 → 404 |
 | POST | `/api/projects/:name/import` | 写 | 从 `tasks/todo.md` 导入未完成项为受管任务（指纹去重） |
 | POST | `/api/tasks/:id/images` | 写 | 上传任务附图（body=原始图片字节，content-type=image/png\|jpeg\|webp\|gif，≤10MB）；返回 `{name,url}` |
 | GET | `/api/tasks/:id/images/:name` | 免 | 取任务附图（流式） |
@@ -86,7 +87,7 @@
 | tags | string[] | 否 | 标签 |
 | status | `collected`\|`backlog`\|`todo`\|`doing`\|`review`\|`done`\|`archived` | 否 | 看板列；默认 `collected`(已收集)；非法 → 400 |
 
-**PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review/done 清空。
+**PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`status=done` 不可经 PATCH——只能由 accept 接口写（→400）。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review(PATCH) 或 accept 时清空。
 
 ---
 

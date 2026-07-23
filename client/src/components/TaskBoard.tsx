@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Input, Select, Button, Tag, Typography, theme, Dropdown, Empty, Tooltip, App as AntApp } from 'antd';
 import { PlusOutlined, MoreOutlined, CalendarOutlined, FormOutlined } from '@ant-design/icons';
 import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
-import { createTask, updateTask } from '../api';
+import { createTask, updateTask, setTaskStatus } from '../api';
 import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_META, TASK_TYPE_OPTIONS } from '../util';
 import TaskEditModal from './TaskEditModal';
 
@@ -100,7 +100,8 @@ function TaskCard({
               onClick: ({ key }) => {
                 if (key === 'edit') return onEdit(task);
                 if (key === 'archive') return act(() => updateTask(task.id, { status: 'archived' }));
-                return act(() => updateTask(task.id, { status: key as TaskStatus }));
+                // done 走验收端点（记 accepted_at/by）；其余状态走 PATCH
+                return act(() => setTaskStatus(task.id, key as TaskStatus));
               },
             }}
           >
@@ -207,7 +208,8 @@ export default function TaskBoard({
     if (!id) return;
     const task = tasks.find((x) => x.id === id);
     if (!task || task.status === status) return;
-    updateTask(id, { status }).then(onChange).catch((e2) => message.error(String(e2.message ?? e2)));
+    // 拖到「已完成」列＝人工验收，走 accept 端点；其余列走 PATCH
+    setTaskStatus(id, status).then(onChange).catch((e2) => message.error(String(e2.message ?? e2)));
   };
 
   return (

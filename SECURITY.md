@@ -44,9 +44,13 @@ agent will act on**. Whoever can write to the board can influence what your agen
 - **Malicious task content.** Task titles and descriptions are handed to a coding agent as
   instructions. If someone can write tasks to your board, they can influence what your agent does.
   Treat write access to the board as equivalent to shell access.
-- **A hostile agent.** The convention that agents claim only `todo` tasks and hand work back at
-  `review` rather than closing them is carried in `AGENTS.md` and the skill file — it is not
-  enforced by the API. See the README section on what's enforced and what isn't.
+- **A hostile agent.** Setting a task `done` is refused on the general `PATCH` and must go through
+  `POST /api/tasks/:id/accept` (which records `accepted_at`/`accepted_by`), so a stray update can't
+  silently close a task and completions are auditable. But this is a guardrail, not a boundary: the
+  human and the agent share one token, so an agent can call `accept` itself. That agents claim only
+  `todo` tasks and hand work back at `review` rather than closing them remains a convention in
+  `AGENTS.md` and the skill file, not an API-enforced permission. See the README section on what's
+  enforced and what isn't.
 - **Multi-user separation.** There is one token and no per-user permissions. This is a single-user
   tool; don't share an instance.
 - **Browsers that don't send `Sec-Fetch-Site`.** The cross-site check can only reject what identifies

@@ -36,6 +36,8 @@ interface TaskRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  accepted_at: string | null;
+  accepted_by: string | null;
 }
 
 function rowToTask(r: TaskRow): Task {
@@ -57,6 +59,8 @@ function rowToTask(r: TaskRow): Task {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     completedAt: r.completed_at,
+    acceptedAt: r.accepted_at,
+    acceptedBy: r.accepted_by,
   };
 }
 
@@ -400,6 +404,12 @@ export function updateTask(id: number, patch: TaskPatch): Task | null {
     push('completed_at', patch.status === 'done' ? (existing.completedAt ?? now()) : null);
     // 重新交付(review)或验收通过(done)时，上一轮打回原因视为已消化，自动清空
     if (patch.status === 'review' || patch.status === 'done') push('reject_reason', null);
+    // 离开 done：验收记录一并作废（与 completed_at 对称，避免 done→其它列后残留 accepted_*）。
+    // 注意：done 本身经 accept 端点写入 accepted_*，不走本函数，故这里只处理"离开"。
+    if (patch.status !== 'done') {
+      push('accepted_at', null);
+      push('accepted_by', null);
+    }
   }
   if (sets.length === 0) return existing;
   push('updated_at', now());
@@ -422,6 +432,23 @@ export function rejectTask(
     now(),
     id,
   );
+  return { task: getTask(id)! };
+}
+
+/**
+ * 验收通过：置任务为 done，写完成/验收时间与验收人（by 可空）。这是**唯一**能把任务置 done 的入口
+ * （PATCH 拒绝 status=done）——目的是让"置完成"成为一个显式的人工动作，达成防误操作 + 可审计。
+ * 单用户模型下人机共用一个 token，技术上无法真正鉴别谁是人，故这不是防绕过的权限锁。
+ * 采「宽松」语义：任意状态皆可验收通过（保留前端从任意列直接完成的便捷）；已 done 再次验收只重打验收时间。
+ */
+export function acceptTask(id: number, by: string | null): { task?: Task; error?: 'not_found' } {
+  const db = getDb();
+  const existing = getTask(id);
+  if (!existing) return { error: 'not_found' };
+  const t = now();
+  db.prepare(
+    `UPDATE task SET status = 'done', completed_at = ?, accepted_at = ?, accepted_by = ?, reject_reason = NULL, updated_at = ? WHERE id = ?`,
+  ).run(existing.completedAt ?? t, t, by, t, id);
   return { task: getTask(id)! };
 }
 

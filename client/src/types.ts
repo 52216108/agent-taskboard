@@ -74,6 +74,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  acceptedAt: string | null; // 人工验收(→done)通过时间；仅经 accept 端点写入
+  acceptedBy: string | null; // 验收人署名（自报，仅供审计）
 }
 
 export interface ProjectDetail extends ProjectInfo {

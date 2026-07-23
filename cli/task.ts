@@ -243,11 +243,12 @@ async function resolveHere(): Promise<string> {
   return best.name;
 }
 
-function actorForDoing(args: string[]): string | undefined {
+/** 从 `--as <名字>` 或 BOARD_ACTOR 取执行者署名（doing 认领人 / done 验收人共用）。 */
+function actorFromArgs(args: string[]): string | undefined {
   const i = args.indexOf('--as');
   if (i >= 0) {
     const actor = args[i + 1];
-    if (!actor || actor.startsWith('--')) throw new Error('--as 后需跟认领人名字');
+    if (!actor || actor.startsWith('--')) throw new Error('--as 后需跟名字');
     return actor;
   }
   return process.env.BOARD_ACTOR?.trim() || undefined;
@@ -256,10 +257,20 @@ function actorForDoing(args: string[]): string | undefined {
 async function setStatus(id: number, status: string, args: string[] = []) {
   if (!Number.isInteger(id))
     throw new Error('用法：board here collected|backlog|todo|doing|review|done <任务id>');
-  const actor = status === 'doing' ? actorForDoing(args) : undefined;
+  // done 只能经验收端点写入（PATCH 拒绝 done）——置完成是显式的人工验收动作，记录验收人/时间
+  if (status === 'done') return acceptCmd(id, args);
+  const actor = status === 'doing' ? actorFromArgs(args) : undefined;
   const body = actor ? { status, assignee: actor } : { status };
   await api(`/api/tasks/${id}`, { method: 'PATCH', write: true, body: JSON.stringify(body) });
   console.log(C.green(`✓ #${id} → ${STATUS_LABEL[status] ?? status}`));
+}
+
+/** 验收通过：任意态 → 已完成，经 accept 端点写 accepted_at/by（`--as`/BOARD_ACTOR 作验收人署名）。 */
+async function acceptCmd(id: number, args: string[] = []) {
+  const by = actorFromArgs(args);
+  const body = by ? { by } : {};
+  await api(`/api/tasks/${id}/accept`, { method: 'POST', write: true, body: JSON.stringify(body) });
+  console.log(C.green(`✓ #${id} → ${STATUS_LABEL.done}（验收通过${by ? ` @${by}` : ''}）`));
 }
 
 /** 验收打回：待验收 → 待开发并记录原因（原因在任务下次置 review/done 时自动清空）。 */
@@ -317,7 +328,7 @@ function help() {
   board here add <标题>       给当前项目登记任务（同样支持 --bug|--optimize）
   board here <状态> <id>      改当前会话任务状态
   board <状态> <id>           改任意任务状态
-       --as <名字>            doing 时认领任务（置于 id 之后）；缺省读取 BOARD_ACTOR
+       --as <名字>            doing 认领任务 / done 署验收人（置于 id 之后）；缺省读取 BOARD_ACTOR
   board [here] reject <id> "原因"  验收打回：待验收 → 待开发，原因回灌给 agent
        状态流转：collected 已收集 → backlog 待规划 → todo 待开发 → doing 进行中 → review 待验收 → done 已完成
        （已收集=收件箱，人工分诊采纳后晋级到待规划；agent 干完置 review 待验收，由人验收后 done）
