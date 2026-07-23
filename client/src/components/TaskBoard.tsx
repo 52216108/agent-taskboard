@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Input, Select, Button, Tag, Typography, theme, Dropdown, Empty, App as AntApp } from 'antd';
-import { PlusOutlined, MoreOutlined, CalendarOutlined } from '@ant-design/icons';
+import { Input, Select, Button, Tag, Typography, theme, Dropdown, Empty, Tooltip, App as AntApp } from 'antd';
+import { PlusOutlined, MoreOutlined, CalendarOutlined, FormOutlined } from '@ant-design/icons';
 import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { createTask, updateTask } from '../api';
 import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_META, TASK_TYPE_OPTIONS } from '../util';
@@ -183,6 +183,23 @@ export default function TaskBoard({
       .catch((e) => message.error(String(e.message ?? e)));
   };
 
+  // 详情新建：先按当前标题/类型/优先级建任务拿到 id，再打开编辑弹窗补描述/截止/认领人/图片。
+  // 图片上传依赖任务已存在（POST /tasks/:id/images），故走"先建后编"复用编辑弹窗的即时上传，无需缓冲。
+  const addDetailed = () => {
+    const t = title.trim();
+    if (!t) {
+      message.warning('请先填写标题');
+      return;
+    }
+    createTask(projectName, { title: t, priority, taskType })
+      .then((created) => {
+        setTitle('');
+        onChange();
+        openEdit(created);
+      })
+      .catch((e) => message.error(String(e.message ?? e)));
+  };
+
   const drop = (status: TaskStatus) => (e: React.DragEvent) => {
     e.preventDefault();
     setOver(null);
@@ -215,6 +232,11 @@ export default function TaskBoard({
           options={(['p0', 'p1', 'p2', 'p3'] as TaskPriority[]).map((p) => ({ value: p, label: p.toUpperCase() }))}
         />
         <Button type="primary" icon={<PlusOutlined />} onClick={add} />
+        <Tooltip title="创建后打开详情，补充描述、截止日期、认领人、图片">
+          <Button icon={<FormOutlined />} onClick={addDetailed}>
+            详情
+          </Button>
+        </Tooltip>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0, 1fr))`, gap: 8 }}>
