@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS task (
   sort_order       INTEGER NOT NULL DEFAULT 0,        -- 列内排序权重，越小越靠前
   created_at       TEXT    NOT NULL,                  -- 创建时间 ISO8601
   updated_at       TEXT    NOT NULL,                  -- 更新时间 ISO8601
-  completed_at     TEXT,                              -- 完成时间 ISO8601；status 变 done 时写入
+  completed_at     TEXT,                              -- 完成时间 ISO8601；status 变 done 时写入，离开 done 清空
+  accepted_at      TEXT,                              -- 人工验收(→done)通过时间 ISO8601；仅经 POST /tasks/:id/accept 写入，离开 done 清空；NULL=未经验收端点(历史 done 或未完成)
+  accepted_by      TEXT,                              -- 验收人署名（自报，如 CLI --as 名字）；单用户模型下无法强制鉴别，仅供审计，NULL=未提供
   FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_task_project ON task(project_id);

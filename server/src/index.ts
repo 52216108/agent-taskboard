@@ -18,6 +18,7 @@ import {
   createTask,
   updateTask,
   rejectTask,
+  acceptTask,
   importTodos,
   addTaskImage,
   removeTaskImage,
@@ -246,6 +247,12 @@ app.patch<{ Params: { id: string }; Body: TaskPatch }>('/api/tasks/:id', async (
   const body = req.body ?? {};
   if (body.status !== undefined && !STATUSES.includes(body.status))
     return reply.code(400).send({ error: 'bad status' });
+  // done 只能经验收端点写入（人工验收 = 显式动作 + 记 accepted_at/by）。PATCH 拒绝，防 agent 的常规
+  // 状态流转误置完成；这是防误操作 + 可审计，不是防绕过（人机同 token，同一进程能改也能调 accept）。
+  if (body.status === 'done')
+    return reply
+      .code(400)
+      .send({ error: 'cannot set done via PATCH; use POST /api/tasks/:id/accept (human acceptance)' });
   if (body.priority !== undefined && !PRIORITIES.includes(body.priority))
     return reply.code(400).send({ error: 'bad priority' });
   if (body.taskType !== undefined && !TASK_TYPES.includes(body.taskType))
@@ -278,6 +285,27 @@ app.post<{ Params: { id: string }; Body: { reason?: unknown } }>(
     if (r.error === 'not_found') return reply.code(404).send({ error: 'task not found' });
     if (r.error === 'not_review')
       return reply.code(400).send({ error: 'only review task can be rejected' });
+    return r.task;
+  },
+);
+
+// 验收通过：置任务 done（唯一入口，PATCH 拒绝 done）。body.by=验收人署名，可空（单用户模型下自报、仅供审计）。
+// 与 reject 对称，宽松语义：任意状态皆可验收通过。
+app.post<{ Params: { id: string }; Body: { by?: unknown } }>(
+  '/api/tasks/:id/accept',
+  async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'bad id' });
+    let by: string | null = null;
+    const raw = (req.body ?? {}).by;
+    if (raw !== undefined && raw !== null) {
+      if (typeof raw !== 'string') return reply.code(400).send({ error: 'bad by' });
+      by = raw.trim();
+      if (by.length < 1 || by.length > 32)
+        return reply.code(400).send({ error: 'bad by (need 1-32 chars)' });
+    }
+    const r = acceptTask(id, by);
+    if (r.error === 'not_found') return reply.code(404).send({ error: 'task not found' });
     return r.task;
   },
 );

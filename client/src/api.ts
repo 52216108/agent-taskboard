@@ -98,6 +98,12 @@ export const updateTask = (id: number, body: TaskPatch): Promise<Task> =>
 /** 验收打回：待验收 → 待开发并记录原因（仅 review 态任务可打回）。 */
 export const rejectTask = (id: number, reason: string): Promise<Task> =>
   post<Task>(`/api/tasks/${id}/reject`, { reason });
+/** 验收通过：置任务为 done（唯一入口，PATCH 拒绝 done）。by=验收人署名，可空。 */
+export const acceptTask = (id: number, by?: string | null): Promise<Task> =>
+  post<Task>(`/api/tasks/${id}/accept`, by != null ? { by } : undefined);
+/** 置状态统一入口：done 走验收端点（记 accepted_at/by），其余走 PATCH。避免各处漏判 done 门禁。 */
+export const setTaskStatus = (id: number, status: TaskStatus): Promise<Task> =>
+  status === 'done' ? acceptTask(id) : updateTask(id, { status });
 
 export const importTodos = (name: string): Promise<{ imported: number; skipped: number }> =>
   post(`/api/projects/${encodeURIComponent(name)}/import`);

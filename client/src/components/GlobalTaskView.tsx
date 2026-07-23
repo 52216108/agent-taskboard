@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Segmented, Tag, Typography, Space, theme, Empty, Spin, Checkbox, Tooltip, App as AntApp } from 'antd';
 import { ClockCircleTwoTone } from '@ant-design/icons';
 import type { GlobalTask, TaskPriority, TaskStatus } from '../types';
-import { fetchAllTasks, updateTask } from '../api';
+import { fetchAllTasks, setTaskStatus } from '../api';
 import { TASK_STATUS_META, TASK_TYPE_META } from '../util';
 import TaskEditModal from './TaskEditModal';
 
@@ -67,9 +67,9 @@ export default function GlobalTaskView({
   }, [tasks, search, filter]);
 
   const toggleDone = (t: GlobalTask, checked: boolean) => {
-    // 勾=已完成；取消勾只会发生在已完成任务上（框 checked 当且仅当 done），
+    // 勾=已完成（走 accept 端点，记 accepted_at/by）；取消勾只会发生在已完成任务上（框 checked 当且仅当 done），
     // 退回「进行中」是"未完成"最直觉的补集——不退到 todo/backlog（会丢掉已做进度的语义）
-    updateTask(t.id, { status: checked ? 'done' : 'doing' })
+    setTaskStatus(t.id, checked ? 'done' : 'doing')
       .then(reload)
       .catch((e) => message.error(String(e.message ?? e)));
   };

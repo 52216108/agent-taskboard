@@ -39,6 +39,9 @@ export function migrate(db: Database.Database): void {
     'ALTER TABLE task ADD COLUMN reject_reason TEXT',
     // 老库补任务附图列；JSON 数组字符串，NULL=无图
     'ALTER TABLE task ADD COLUMN images TEXT',
+    // 老库补验收审计列：accepted_at=人工验收(→done)时间、accepted_by=验收人署名（自报），均 NULL=未经 accept 端点
+    'ALTER TABLE task ADD COLUMN accepted_at TEXT',
+    'ALTER TABLE task ADD COLUMN accepted_by TEXT',
   ];
   for (const sql of adds) {
     try {

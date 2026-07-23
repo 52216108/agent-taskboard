@@ -106,6 +106,10 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /** 人工验收(→done)通过时间；仅经 accept 端点写入，离开 done 清空。NULL=未经验收端点。 */
+  acceptedAt: string | null;
+  /** 验收人署名（自报，如 CLI --as）；单用户模型下仅供审计。NULL=未提供。 */
+  acceptedBy: string | null;
 }
 
 /** 详情接口的额外字段。 */

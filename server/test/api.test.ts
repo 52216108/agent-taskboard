@@ -167,6 +167,95 @@ describe('请求校验（不依赖扫描的快速分支）', () => {
     expect(res.json().rejectReason).toBe('缺测试'); // trim 后入库
     expect(updateTask(task.id, { status: 'review' })!.rejectReason).toBeNull();
   });
+
+  // ── 验收通过 accept + done 门禁（board #355）──
+  it('PATCH /api/tasks/:id status=done → 400（done 只能经 accept 端点）', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'done' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(updateTask(task.id, {})!.status).toBe('review'); // 未被写成 done
+  });
+
+  it('POST /api/tasks/:id/accept 不存在 → 404', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/tasks/999999/accept', payload: {} });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST /api/tasks/:id/accept review → done，写 completedAt/acceptedAt，清空打回原因', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    const res = await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/accept`, payload: {} });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe('done');
+    expect(body.completedAt).toBeTruthy();
+    expect(body.acceptedAt).toBeTruthy();
+    expect(body.acceptedBy).toBeNull();
+  });
+
+  it('POST /api/tasks/:id/accept 任意态(doing)也可验收通过（宽松语义）', async () => {
+    const task = createTask('k', '/p', { title: '进行中', status: 'doing' });
+    const res = await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/accept`, payload: {} });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('done');
+  });
+
+  it('POST /api/tasks/:id/accept by → 记录验收人（trim 后入库）', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/accept`,
+      payload: { by: ' gavin ' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().acceptedBy).toBe('gavin');
+  });
+
+  it('POST /api/tasks/:id/accept by 超 32 字符 → 400', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/accept`,
+      payload: { by: 'a'.repeat(33) },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('离开 done 时验收记录一并清空（accept 后退回 doing）', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/accept`, payload: { by: 'gavin' } });
+    const back = updateTask(task.id, { status: 'doing' })!;
+    expect(back.completedAt).toBeNull();
+    expect(back.acceptedAt).toBeNull();
+    expect(back.acceptedBy).toBeNull();
+  });
+
+  it('POST /api/tasks/:id/accept by 非字符串 → 400', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/accept`,
+      payload: { by: 123 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /api/tasks/:id/accept 非整数 id → 400', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/tasks/abc/accept', payload: {} });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('re-accept 保留原 completedAt、只刷新 acceptedAt（宽松语义下重复验收）', async () => {
+    const task = createTask('k', '/p', { title: '待验收', status: 'review' });
+    const first = await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/accept`, payload: {} });
+    const completedAt = first.json().completedAt;
+    const second = await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/accept`, payload: {} });
+    expect(second.json().completedAt).toBe(completedAt); // 完成时间不变
+    expect(second.json().status).toBe('done');
+  });
 });
 
 describe('鉴权门（设 BOARD_TOKEN 时）', () => {
