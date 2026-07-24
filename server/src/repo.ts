@@ -440,6 +440,23 @@ export function rejectTask(
 }
 
 /**
+ * 二次编辑打回内容：仅对**已携带打回原因**（reject_reason 非空）的任务更新原因，不改状态。
+ * 与 rejectTask 分工——rejectTask 负责 review→todo 的首次打回，本函数负责已打回任务的原因修订；
+ * 二者都是写 reject_reason 的专用入口，PATCH 仍不能写（白名单锁不动）。
+ */
+export function updateRejectReason(
+  id: number,
+  reason: string,
+): { task?: Task; error?: 'not_found' | 'no_reject' } {
+  const db = getDb();
+  const existing = getTask(id);
+  if (!existing) return { error: 'not_found' };
+  if (!existing.rejectReason) return { error: 'no_reject' }; // 没有打回在身，无内容可编辑
+  db.prepare(`UPDATE task SET reject_reason = ?, updated_at = ? WHERE id = ?`).run(reason, now(), id);
+  return { task: getTask(id)! };
+}
+
+/**
  * 验收通过：置任务为 done，写完成/验收时间与验收人（by 可空）。这是**唯一**能把任务置 done 的入口
  * （PATCH 拒绝 status=done）——目的是让"置完成"成为一个显式的人工动作，达成防误操作 + 可审计。
  * 单用户模型下人机共用一个 token，技术上无法真正鉴别谁是人，故这不是防绕过的权限锁。

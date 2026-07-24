@@ -100,6 +100,9 @@ export const updateTask = (id: number, body: TaskPatch): Promise<Task> =>
 /** 验收打回：待验收 → 待开发并记录原因（仅 review 态任务可打回）。 */
 export const rejectTask = (id: number, reason: string): Promise<Task> =>
   post<Task>(`/api/tasks/${id}/reject`, { reason });
+/** 二次编辑打回内容：修订已打回任务的原因，不改状态（仅对已携带打回原因的任务）。 */
+export const updateRejectReason = (id: number, reason: string): Promise<Task> =>
+  post<Task>(`/api/tasks/${id}/reject-reason`, { reason });
 /** 验收通过：置任务为 done（唯一入口，PATCH 拒绝 done）。by=验收人署名，可空。 */
 export const acceptTask = (id: number, by?: string | null): Promise<Task> =>
   post<Task>(`/api/tasks/${id}/accept`, by != null ? { by } : undefined);

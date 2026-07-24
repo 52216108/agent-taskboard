@@ -68,6 +68,7 @@
 | POST | `/api/projects/:name/tasks` | 写 | 新建受管任务（`source=manual`） |
 | PATCH | `/api/tasks/:id` | 写 | 改任务字段 / 状态流转；**拒绝 `status=done`（→400，指向 accept 端点）**；置 review 自动清空 reject_reason；离开 done 清空 completed_at/accepted_at/accepted_by |
 | POST | `/api/tasks/:id/reject` | 写 | 验收打回：仅 review 态可打回 → todo 并记录原因；body `{reason}`（trim 后 1..500 字符），非 review → 400 |
+| POST | `/api/tasks/:id/reject-reason` | 写 | 二次编辑打回内容：对**已携带打回原因**的任务修订原因，**不改状态**；body `{reason}`（trim 后 1..500 字符）；无打回在身 → 400，任务不存在 → 404。与 reject 同为写 `reject_reason` 的专用入口（PATCH 仍不可写） |
 | POST | `/api/tasks/:id/accept` | 写 | 验收通过 → done（**唯一置 done 入口**）：写 completed_at/accepted_at、清 reject_reason；body `{by?}`=验收人署名（可空，trim 后 1..32 字符；单用户模型下自报、仅审计）。宽松语义：任意状态皆可验收通过；任务不存在 → 404 |
 | POST | `/api/projects/:name/import` | 写 | 从 `tasks/todo.md` 导入未完成项为受管任务（指纹去重） |
 | POST | `/api/tasks/:id/images` | 写 | 上传任务附图（body=原始图片字节，content-type=image/png\|jpeg\|webp\|gif，≤10MB）；返回 `{name,url}` |

@@ -18,6 +18,7 @@ import {
   createTask,
   updateTask,
   rejectTask,
+  updateRejectReason,
   acceptTask,
   importTodos,
   addTaskImage,
@@ -313,6 +314,26 @@ app.post<{ Params: { id: string }; Body: { reason?: unknown } }>(
     if (r.error === 'not_found') return reply.code(404).send({ error: 'task not found' });
     if (r.error === 'not_review')
       return reply.code(400).send({ error: 'only review task can be rejected' });
+    return r.task;
+  },
+);
+
+// 二次编辑打回内容：对**已打回**（reject_reason 非空）的任务修订原因，不改状态。
+// 单列端点而非放开 PATCH——保留"reject_reason 只能由专用接口写"的白名单锁。
+app.post<{ Params: { id: string }; Body: { reason?: unknown } }>(
+  '/api/tasks/:id/reject-reason',
+  async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'bad id' });
+    const raw = (req.body ?? {}).reason;
+    if (typeof raw !== 'string') return reply.code(400).send({ error: 'reason required' });
+    const reason = raw.trim();
+    if (reason.length < 1 || reason.length > 500)
+      return reply.code(400).send({ error: 'bad reason (need 1-500 chars)' });
+    const r = updateRejectReason(id, reason);
+    if (r.error === 'not_found') return reply.code(404).send({ error: 'task not found' });
+    if (r.error === 'no_reject')
+      return reply.code(400).send({ error: 'task has no reject reason to edit' });
     return r.task;
   },
 );
