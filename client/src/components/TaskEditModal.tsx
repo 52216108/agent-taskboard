@@ -22,6 +22,7 @@ import type { Task, TaskPriority, TaskStatus, TaskType, TaskImage, SubTask } fro
 import {
   updateTask,
   rejectTask,
+  updateRejectReason,
   acceptTask,
   uploadTaskImage,
   deleteTaskImage,
@@ -71,6 +72,8 @@ export default function TaskEditModal({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
+  const [rejectReasonEdit, setRejectReasonEdit] = useState(''); // 二次编辑已打回内容
+  const [savingReason, setSavingReason] = useState(false);
   const { token } = theme.useToken();
 
   useEffect(() => {
@@ -87,7 +90,10 @@ export default function TaskEditModal({
     setNewSubtask('');
     setRejectOpen(false);
     setRejectReason('');
-  }, [task]);
+    setRejectReasonEdit(task.rejectReason ?? '');
+    // 依赖带 open：editTask 是点击时的对象快照，父层刷新不会换引用，只依赖 task 会让
+    // 上次未保存的草稿残留到下次打开（打回内容尤其危险——它会伪装成"当前已保存的原因"）
+  }, [task, open]);
 
   if (!task) return null;
 
@@ -155,6 +161,35 @@ export default function TaskEditModal({
       })
       .catch((e) => message.error(String(e.message ?? e)))
       .finally(() => setRejecting(false));
+  };
+
+  /** 二次编辑：修订已打回任务的打回内容（不改状态），走专用端点。 */
+  const doUpdateReason = () => {
+    if (savingReason) return;
+    const reason = rejectReasonEdit.trim();
+    if (!reason) {
+      message.warning('打回内容不能为空');
+      return;
+    }
+    setSavingReason(true);
+    updateRejectReason(task.id, reason)
+      .then((updated) => {
+        // 用服务端 trim 后的内容回灌（本地显示读的是这个 state，不是快照 task）
+        setRejectReasonEdit(updated.rejectReason ?? '');
+        message.success('打回内容已更新');
+        onSaved();
+      })
+      .catch((e) => {
+        const msg = String(e.message ?? e);
+        // 竞态：编辑期间 agent 重新交付(置 review) → 原因被自动清空，端点 fail-closed 返回此错
+        if (msg.includes('no reject reason')) {
+          message.warning('该任务已重新交付，打回原因已被消化');
+          onSaved(); // 刷回真实状态
+        } else {
+          message.error(msg);
+        }
+      })
+      .finally(() => setSavingReason(false));
   };
 
   const handleUpload = async (opt: UploadReq) => {
@@ -238,18 +273,37 @@ export default function TaskEditModal({
       }
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12} onPaste={handlePaste}>
+        {/* 打回在身的任务：内容可二次修订（agent 下次领任务读到的是最新内容），走专用端点不动白名单锁 */}
         {task.rejectReason && (
           <Alert
             type="warning"
             showIcon
-            message="上轮验收打回"
-            description={<span style={{ whiteSpace: 'pre-wrap' }}>{task.rejectReason}</span>}
+            message="上轮验收打回（可修订）"
+            description={
+              <>
+                <Input.TextArea
+                  value={rejectReasonEdit}
+                  onChange={(e) => setRejectReasonEdit(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  showCount
+                  disabled={savingReason}
+                  placeholder="补充说明哪里不过关、期望改成什么样…"
+                />
+                {/* 同上：给 showCount 的绝对定位字数统计留出空间 */}
+                <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button size="small" loading={savingReason} onClick={doUpdateReason}>
+                    更新打回内容
+                  </Button>
+                </div>
+              </>
+            }
           />
         )}
         {rejectOpen && (
           <div>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              打回原因（回灌给 agent，任务将退回「待开发」）
+              打回原因（回灌给 agent，任务将退回「待开发」；可附图或直接粘贴截图，图片会立即保存到任务）
             </Text>
             <Input.TextArea
               value={rejectReason}
@@ -259,13 +313,36 @@ export default function TaskEditModal({
               showCount
               placeholder="哪里不过关、期望改成什么样…"
             />
-            <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Button size="small" onClick={() => setRejectOpen(false)}>
-                取消
-              </Button>
-              <Button size="small" type="primary" danger loading={rejecting} onClick={doReject}>
-                确认打回
-              </Button>
+            {/* marginTop 留够 24：showCount 的字数统计是绝对定位、下探约 22px，8px 会被按钮行压住 */}
+            <div
+              style={{
+                marginTop: 24,
+                display: 'flex',
+                gap: 8,
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }}
+            >
+              {/* 打回时附图：任务已存在（review 态），走与图片区相同的即时上传，附到任务上供 agent 看 */}
+              <Upload
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                showUploadList={false}
+                multiple
+                customRequest={handleUpload}
+              >
+                <Button size="small" icon={<UploadOutlined />}>
+                  附图
+                </Button>
+              </Upload>
+              <Space size={8}>
+                <Button size="small" onClick={() => setRejectOpen(false)}>
+                  取消
+                </Button>
+                <Button size="small" type="primary" danger loading={rejecting} onClick={doReject}>
+                  确认打回
+                </Button>
+              </Space>
             </div>
           </div>
         )}

@@ -168,6 +168,96 @@ describe('请求校验（不依赖扫描的快速分支）', () => {
     expect(updateTask(task.id, { status: 'review' })!.rejectReason).toBeNull();
   });
 
+  // ── 二次编辑打回内容 reject-reason（board #370）──
+  it('POST /api/tasks/:id/reject-reason 对已打回任务 → 200，更新原因（trim），状态不变', async () => {
+    const task = createTask('k', '/p', { title: '待打回', status: 'review' });
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/reject`, payload: { reason: '原因A' } });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: { reason: ' 补充说明B ' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().rejectReason).toBe('补充说明B'); // trim 后入库
+    expect(res.json().status).toBe('todo'); // 状态不变
+  });
+
+  it('POST /api/tasks/:id/reject-reason 对无打回原因的任务 → 400', async () => {
+    const task = createTask('k', '/p', { title: '没被打回过' }); // 默认 collected，无 reject_reason
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: { reason: '试图凭空加打回' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /api/tasks/:id/reject-reason 不存在 → 404', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tasks/999999/reject-reason',
+      payload: { reason: 'x' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST /api/tasks/:id/reject-reason doing 态也可编辑（agent 正在做、人补充说明）', async () => {
+    const task = createTask('k', '/p', { title: '待打回', status: 'review' });
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/reject`, payload: { reason: '原因A' } });
+    updateTask(task.id, { status: 'doing' }); // agent 领走开工，打回原因仍在身
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: { reason: '补充：还要加测试' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().rejectReason).toBe('补充：还要加测试');
+    expect(res.json().status).toBe('doing'); // 状态不变
+  });
+
+  it('POST /api/tasks/:id/reject-reason reason 非字符串/缺字段 → 400', async () => {
+    const task = createTask('k', '/p', { title: '待打回', status: 'review' });
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/reject`, payload: { reason: '原因' } });
+    const num = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: { reason: 123 },
+    });
+    expect(num.statusCode).toBe(400);
+    const missing = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: {},
+    });
+    expect(missing.statusCode).toBe(400);
+  });
+
+  it('POST /api/tasks/:id/reject-reason 非整数 id → 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tasks/abc/reject-reason',
+      payload: { reason: 'x' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /api/tasks/:id/reject-reason 空/超长 → 400', async () => {
+    const task = createTask('k', '/p', { title: '待打回', status: 'review' });
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/reject`, payload: { reason: '原因' } });
+    const empty = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: { reason: '   ' },
+    });
+    expect(empty.statusCode).toBe(400);
+    const long = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/reject-reason`,
+      payload: { reason: 'a'.repeat(501) },
+    });
+    expect(long.statusCode).toBe(400);
+  });
+
   // ── 验收通过 accept + done 门禁（board #355）──
   it('PATCH /api/tasks/:id status=done → 400（done 只能经 accept 端点）', async () => {
     const task = createTask('k', '/p', { title: '待验收', status: 'review' });
