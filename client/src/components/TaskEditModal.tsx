@@ -224,7 +224,7 @@ export default function TaskEditModal({
             </Button>
             {task.status === 'review' && (
               <Button danger onClick={() => setRejectOpen((v) => !v)}>
-                打回…
+                打回
               </Button>
             )}
           </Space>
