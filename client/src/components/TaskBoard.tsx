@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
-import { Input, Select, Button, Tag, Typography, theme, Dropdown, Empty, Tooltip, App as AntApp } from 'antd';
-import { PlusOutlined, MoreOutlined, CalendarOutlined, FormOutlined } from '@ant-design/icons';
-import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
-import { createTask, updateTask, setTaskStatus } from '../api';
-import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_META, TASK_TYPE_OPTIONS } from '../util';
+import { Button, Tag, Typography, theme, Dropdown, Empty, App as AntApp } from 'antd';
+import { PlusOutlined, MoreOutlined, CalendarOutlined } from '@ant-design/icons';
+import type { Task, TaskStatus, TaskPriority } from '../types';
+import { updateTask, setTaskStatus } from '../api';
+import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_META } from '../util';
 import TaskEditModal from './TaskEditModal';
+import TaskCreateModal from './TaskCreateModal';
 
 const { Text } = Typography;
 
@@ -157,10 +158,8 @@ export default function TaskBoard({
 }) {
   const { token } = theme.useToken();
   const { message } = AntApp.useApp();
-  const [title, setTitle] = useState('');
-  const [priority, setPriority] = useState<TaskPriority>('p2');
-  const [taskType, setTaskType] = useState<TaskType>('feature');
   const [over, setOver] = useState<TaskStatus | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<TaskStatus>>(new Set());
@@ -178,34 +177,6 @@ export default function TaskBoard({
     setEditOpen(true);
   };
 
-  const add = () => {
-    const t = title.trim();
-    if (!t) return;
-    createTask(projectName, { title: t, priority, taskType })
-      .then(() => {
-        setTitle('');
-        onChange();
-      })
-      .catch((e) => message.error(String(e.message ?? e)));
-  };
-
-  // 详情新建：先按当前标题/类型/优先级建任务拿到 id，再打开编辑弹窗补描述/截止/认领人/图片。
-  // 图片上传依赖任务已存在（POST /tasks/:id/images），故走"先建后编"复用编辑弹窗的即时上传，无需缓冲。
-  const addDetailed = () => {
-    const t = title.trim();
-    if (!t) {
-      message.warning('请先填写标题');
-      return;
-    }
-    createTask(projectName, { title: t, priority, taskType })
-      .then((created) => {
-        setTitle('');
-        onChange();
-        openEdit(created);
-      })
-      .catch((e) => message.error(String(e.message ?? e)));
-  };
-
   const drop = (status: TaskStatus) => (e: React.DragEvent) => {
     e.preventDefault();
     setOver(null);
@@ -219,31 +190,10 @@ export default function TaskBoard({
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <Input
-          placeholder="新建任务标题，回车添加"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onPressEnter={add}
-        />
-        <Select<TaskType>
-          value={taskType}
-          onChange={setTaskType}
-          style={{ width: 90 }}
-          options={TASK_TYPE_OPTIONS}
-        />
-        <Select<TaskPriority>
-          value={priority}
-          onChange={setPriority}
-          style={{ width: 90 }}
-          options={(['p0', 'p1', 'p2', 'p3'] as TaskPriority[]).map((p) => ({ value: p, label: p.toUpperCase() }))}
-        />
-        <Button type="primary" icon={<PlusOutlined />} onClick={add} />
-        <Tooltip title="创建后打开详情，补充描述、截止日期、认领人、图片">
-          <Button icon={<FormOutlined />} onClick={addDetailed}>
-            详情
-          </Button>
-        </Tooltip>
+      <div style={{ marginBottom: 12 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          新建任务
+        </Button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0, 1fr))`, gap: 8 }}>
@@ -303,6 +253,12 @@ export default function TaskBoard({
         })}
       </div>
 
+      <TaskCreateModal
+        projectName={projectName}
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={onChange}
+      />
       <TaskEditModal task={editTask} open={editOpen} onClose={() => setEditOpen(false)} onSaved={onChange} />
     </>
   );

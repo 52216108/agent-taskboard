@@ -52,8 +52,9 @@
 | `src/types.ts` | 前端类型，与后端对齐（含 `TaskType = feature\|bug\|optimize`、`TaskImage`） | `Task`, `TaskType`, `TaskImage`, `ProjectInfo` … |
 | `src/util.ts` | 工具：相对时间 / 活跃度等级 / **任务类型展示元数据** + **任务状态元数据**（列标题/标签+颜色，看板/弹窗/全局列表共用，单一事实源） | `relativeTime`, `activityLevel`, `TASK_TYPE_META`, `TASK_TYPE_OPTIONS`, `BOARD_STATUSES`, `TASK_STATUS_META` |
 | `src/components/ProjectCard.tsx` | 项目卡片：活跃度/git/todo 计数/优先级/逾期标签 + 置顶按钮 | `ProjectCard` |
-| `src/components/TaskBoard.tsx` | 六列看板（已收集/待规划/待开发/进行中/待验收/已完成，列数/定义源自 util 的 `BOARD_STATUSES`，grid 列数按其长度派生）+ 拖拽 + 新建任务表单（**类型/优先级选择器**，默认进已收集）+ 卡片**类型标签** | `TaskBoard` |
-| `src/components/TaskEditModal.tsx` | 任务编辑弹窗（标题/描述/**类型**/优先级/状态/截止/归档/**图片粘贴上传**），看板与全局视图共用 | `TaskEditModal` |
+| `src/components/TaskBoard.tsx` | 六列看板（已收集/待规划/待开发/进行中/待验收/已完成，列数/定义源自 util 的 `BOARD_STATUSES`，grid 列数按其长度派生）+ 拖拽 + 顶部**「＋新建任务」按钮**（开 TaskCreateModal）+ 卡片**类型标签/子任务进度** | `TaskBoard` |
+| `src/components/TaskCreateModal.tsx` | 新建任务弹窗（标题/描述/类型/优先级/认领人/截止/**图片内存缓冲、创建后上传**），默认落已收集；「取消」不落库 | `TaskCreateModal` |
+| `src/components/TaskEditModal.tsx` | 任务编辑弹窗（标题/描述/**类型**/优先级/状态/认领人/截止/归档/打回/**图片粘贴上传**/**子任务清单**），看板与全局视图共用 | `TaskEditModal` |
 | `src/components/GlobalTaskView.tsx` | 跨项目全局任务列表 + 筛选（未完成/高优/今天/逾期/全部）+ **类型标签** | `GlobalTaskView` |
 
 ---
