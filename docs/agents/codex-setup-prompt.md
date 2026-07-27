@@ -1,7 +1,7 @@
 # Codex 接入提示词
 
 > 这是 [agent-taskboard](https://github.com/52216108/agent-taskboard) 的 Codex 接入文档。
-> Claude Code 用户不需要它——装 [board-tasks-skill.md](board-tasks-skill.md) 即可。
+> Claude Code 用户见 [claude-setup-prompt.md](claude-setup-prompt.md)。
 
 Codex 每次会话只自动加载两处规则文件：全局 `~/.codex/AGENTS.md` 和**当前工作目录**所在仓库的
 `AGENTS.md`。看板仓库根的那份 `AGENTS.md` 只在看板仓库本身里干活时生效——你在自己的项目里
