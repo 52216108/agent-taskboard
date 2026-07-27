@@ -142,8 +142,9 @@ Set up agent-taskboard (https://github.com/52216108/agent-taskboard) on this mac
    identifies the project when run inside one of my project directories.
 4. Wire yourself up so you can pull work from the board:
    - Claude Code: install docs/agents/board-tasks-skill.md to ~/.claude/skills/board-tasks/SKILL.md
-   - Codex: the repo's AGENTS.md already covers this — read it and confirm you understand the
-     task flow (claim only `todo`, hand back at `review`, one commit per task)
+   - Codex: follow docs/agents/codex-setup-prompt.md to write the board conventions into the
+     global ~/.codex/AGENTS.md (the repo's own AGENTS.md only applies when working inside this
+     repo — you won't see it from other projects)
 5. On macOS, ask whether I want it running at login. If yes: bash deploy/setup.sh
    (pass BOARD_PROJECTS=... if I have projects outside the scan roots).
 
@@ -197,10 +198,15 @@ board backup                back up the database
 
 Teach your agent the workflow once, and it can pull work from the board on its own:
 
-- **Codex** — [AGENTS.md](AGENTS.md) in the repo root is its rules file; Codex reads it automatically.
+- **Codex** — paste the prompt from [docs/agents/codex-setup-prompt.md](docs/agents/codex-setup-prompt.md)
+  into it once; it writes the conventions into your global `~/.codex/AGENTS.md`, which Codex loads in
+  every session. The repo-root [AGENTS.md](AGENTS.md) only covers work inside this repo — Codex won't
+  see it from your own projects.
 - **Claude Code** — install [docs/agents/board-tasks-skill.md](docs/agents/board-tasks-skill.md) as a skill,
   or fold its conventions into your `CLAUDE.md`.
-- **Anything else** — point it at either file; they're plain markdown describing the same conventions.
+- **Anything else** — point it at [board-tasks-skill.md](docs/agents/board-tasks-skill.md); it's plain
+  markdown describing the same conventions. (Codex needs the setup prompt instead only because its
+  rules must live in its own global `~/.codex/AGENTS.md` to take effect.)
 
 ### Why any agent works
 
@@ -214,7 +220,7 @@ Qwen Code, Aider, or something you wrote yourself all qualify equally, whatever 
 them. It doesn't even have to be an AI: a shell script or a CI job can drive the same CLI.
 
 What each agent *does* need is to know the conventions — claim only `todo`, hand back at `review`,
-one commit per task. That's what the two files above carry.
+one commit per task. That's what the files above carry.
 
 ### What triggers a run
 
