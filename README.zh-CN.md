@@ -126,8 +126,8 @@ board reject 42 "空输入的分支没有测试"
    `board here` 能正确认出那个项目。
 4. 把你自己接进来，这样你才能从看板领活：
    - Claude Code：把 docs/agents/board-tasks-skill.md 装到 ~/.claude/skills/board-tasks/SKILL.md
-   - Codex：仓库根的 AGENTS.md 已经写好了，读一遍并确认你理解这套流转
-     （只领「待开发」、干完置「待验收」、一任务一 commit）
+   - Codex：按 docs/agents/codex-setup-prompt.md 把看板协作约定写入全局 ~/.codex/AGENTS.md
+     （仓库根的 AGENTS.md 只在本仓库里干活时生效，在别的项目里你读不到它）
 5. macOS 上问我要不要开机自启。要的话：bash deploy/setup.sh
    （我有扫描根之外的项目就带上 BOARD_PROJECTS=...）
 
@@ -180,9 +180,13 @@ board backup                备份数据库
 
 教会你的 agent 这套工作流一次，它就能自己从看板领活：
 
-- **Codex** —— 仓库根的 [AGENTS.md](AGENTS.md) 就是给它的规则文件，Codex 每次会话自动读取。
+- **Codex** —— 把 [docs/agents/codex-setup-prompt.md](docs/agents/codex-setup-prompt.md) 里的提示词
+  整段粘给它，它会把约定写入全局 `~/.codex/AGENTS.md`，此后在任何项目里都生效。仓库根的
+  [AGENTS.md](AGENTS.md) 只覆盖「在本仓库里干活」的场景——在你自己的项目里 Codex 读不到它。
 - **Claude Code** —— 把 [docs/agents/board-tasks-skill.md](docs/agents/board-tasks-skill.md) 装成 skill，或把其中约定并入你的 `CLAUDE.md`。
-- **其他任何 agent** —— 把上面任一文件指给它即可，那就是同一套约定的纯 markdown 描述。
+- **其他任何 agent** —— 把 [board-tasks-skill.md](docs/agents/board-tasks-skill.md) 指给它即可，
+  那就是这套约定的纯 markdown 描述（Codex 需要专门的接入提示词，只是因为它的规则必须写进
+  它自己的全局 `~/.codex/AGENTS.md` 才生效）。
 
 ### 为什么任何 agent 都能用
 
@@ -195,7 +199,7 @@ Claude Code、Codex、Gemini CLI、Qwen Code、Aider，或者你自己写的东�
 背后是哪家模型都无所谓。甚至不必是 AI：一个 shell 脚本或 CI 任务同样能驱动这套 CLI。
 
 每个 agent 真正需要知道的是那套约定——只领「待开发」、干完置「待验收」、一任务一 commit。
-这正是上面两个文件承载的内容。
+这正是上面那些文件承载的内容。
 
 ### 任务流是怎么启动的
 

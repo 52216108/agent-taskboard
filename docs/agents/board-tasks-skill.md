@@ -7,7 +7,8 @@ description: 处理本地多项目看板（agent-taskboard）派给当前项目�
 
 > 这是 [agent-taskboard](https://github.com/52216108/agent-taskboard) 的 Claude Code skill。
 > 把本文件放到 `~/.claude/skills/board-tasks/SKILL.md` 即可启用。
-> 用 Codex 的话不需要它——看板仓库根目录的 `AGENTS.md` 已经承担了同样的角色。
+> 用 Codex 的话见 [codex-setup-prompt.md](codex-setup-prompt.md)——把同一套约定写入全局
+> `~/.codex/AGENTS.md`（看板仓库根的 `AGENTS.md` 只在该仓库内生效，别的项目里 Codex 读不到）。
 
 看板是受管项目任务的**唯一事实源**（不是 `tasks/todo.md`）。本 skill 让你拉取并处理派给项目的看板任务。
 **只接受用户明确发起，不主动认领。**
