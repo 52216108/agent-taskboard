@@ -202,11 +202,13 @@ Teach your agent the workflow once, and it can pull work from the board on its o
   into it once; it writes the conventions into your global `~/.codex/AGENTS.md`, which Codex loads in
   every session. The repo-root [AGENTS.md](AGENTS.md) only covers work inside this repo — Codex won't
   see it from your own projects.
-- **Claude Code** — install [docs/agents/board-tasks-skill.md](docs/agents/board-tasks-skill.md) as a skill,
-  or fold its conventions into your `CLAUDE.md`.
+- **Claude Code** — paste the prompt from [docs/agents/claude-setup-prompt.md](docs/agents/claude-setup-prompt.md)
+  into it once; it installs [board-tasks-skill.md](docs/agents/board-tasks-skill.md) as a skill on its own.
+  Or install the file manually, or fold its conventions into your `CLAUDE.md`.
 - **Anything else** — point it at [board-tasks-skill.md](docs/agents/board-tasks-skill.md); it's plain
-  markdown describing the same conventions. (Codex needs the setup prompt instead only because its
-  rules must live in its own global `~/.codex/AGENTS.md` to take effect.)
+  markdown describing the same conventions. (Codex is the only agent that must go through its setup
+  prompt — its rules only take effect from the global `~/.codex/AGENTS.md`. The Claude Code prompt
+  is just a shortcut that automates the install.)
 
 ### Why any agent works
 

@@ -84,6 +84,7 @@
 | 路径 | 职责 |
 |------|------|
 | `agents/board-tasks-skill.md` | Claude Code skill（装到 `~/.claude/skills/board-tasks/SKILL.md`） |
+| `agents/claude-setup-prompt.md` | Claude Code 接入提示词（粘给 Claude Code，自动把 board-tasks-skill.md 装成 skill） |
 | `agents/codex-setup-prompt.md` | Codex 接入提示词（粘给 Codex，把约定写入全局 `~/.codex/AGENTS.md`；根目录 `AGENTS.md` 仅本仓库内生效） |
 | `screenshots/` | README 用产品截图（演示数据，非真实项目） |
 

@@ -183,10 +183,12 @@ board backup                备份数据库
 - **Codex** —— 把 [docs/agents/codex-setup-prompt.md](docs/agents/codex-setup-prompt.md) 里的提示词
   整段粘给它，它会把约定写入全局 `~/.codex/AGENTS.md`，此后在任何项目里都生效。仓库根的
   [AGENTS.md](AGENTS.md) 只覆盖「在本仓库里干活」的场景——在你自己的项目里 Codex 读不到它。
-- **Claude Code** —— 把 [docs/agents/board-tasks-skill.md](docs/agents/board-tasks-skill.md) 装成 skill，或把其中约定并入你的 `CLAUDE.md`。
+- **Claude Code** —— 把 [docs/agents/claude-setup-prompt.md](docs/agents/claude-setup-prompt.md) 里的提示词
+  整段粘给它，它会自己把 [board-tasks-skill.md](docs/agents/board-tasks-skill.md) 装成 skill；
+  也可以手动装，或把其中约定并入你的 `CLAUDE.md`。
 - **其他任何 agent** —— 把 [board-tasks-skill.md](docs/agents/board-tasks-skill.md) 指给它即可，
-  那就是这套约定的纯 markdown 描述（Codex 需要专门的接入提示词，只是因为它的规则必须写进
-  它自己的全局 `~/.codex/AGENTS.md` 才生效）。
+  那就是这套约定的纯 markdown 描述（Codex 是唯一必须走专属提示词的——它的规则要写进全局
+  `~/.codex/AGENTS.md` 才生效；Claude Code 那份提示词只是自动安装的捷径）。
 
 ### 为什么任何 agent 都能用
 
