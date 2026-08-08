@@ -203,6 +203,8 @@ button {
 }
 
 /* 侧边栏搜索框 */
+/* 边框不能省：sunken 底铺在 sb 的 app 底上明暗都只差几个色阶，
+   不描边就没有「这是个输入框」的可供性 */
 .sb-search {
   display: flex;
   align-items: center;
@@ -210,6 +212,7 @@ button {
   height: 30px;
   padding: 0 8px;
   margin-bottom: 6px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-sunken);
   color: var(--text-3);
@@ -636,6 +639,8 @@ button {
   font-weight: 500;
   white-space: nowrap;
 }
+/* color-mix 需要 Safari 16.2+ / Chrome 111+。不支持时只是这条 background 被丢弃，
+   chip 变成无底色的彩色文字——仍然可读，是有意接受的降级，不要当 bug「修」成硬编码色。 */
 .chip-type {
   background: color-mix(in srgb, var(--chip-c) 12%, transparent);
   color: var(--chip-c);
@@ -836,6 +841,54 @@ button {
   text-align: center;
   color: var(--text-3);
   font-size: 13px;
+}
+
+/* ── 触摸设备 ─────────────────────────────────────────── */
+/* 卡片菜单 / 列头「＋」/ 置顶键平时靠 hover 显形。触摸屏没有 hover，
+   不补这条等于这些功能在平板手机上整个消失（README 主推 Tailscale 远程访问，平板是现实场景）。*/
+@media (hover: none) {
+  .col-add,
+  .tcard-more,
+  .pcard-pin {
+    opacity: 1;
+  }
+}
+
+/* ── 窄屏：侧边栏收成抽屉 ─────────────────────────────── */
+
+.sb-toggle {
+  display: none;
+}
+.sb-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 860px) {
+  .sb-toggle {
+    display: inline-flex;
+    margin-left: -4px;
+  }
+  .sb {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 30;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+    box-shadow: var(--shadow-2);
+  }
+  .sb.is-open {
+    transform: none;
+  }
+}
+
+/* 宽屏下侧边栏常驻，遮罩即使被渲染出来也不该盖住页面 */
+@media (min-width: 861px) {
+  .sb-scrim {
+    display: none;
+  }
 }
 
 .hint {

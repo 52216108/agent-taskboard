@@ -24,7 +24,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export default function GlobalTaskView() {
   const { message } = AntApp.useApp();
   const navigate = useNavigate();
-  const { search, reload: reloadProjects } = useBoard();
+  const { search, reload: reloadProjects, revision } = useBoard();
   const [tasks, setTasks] = useState<GlobalTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('open');
@@ -38,12 +38,11 @@ export default function GlobalTaskView() {
       .catch((e) => message.error(String(e.message ?? e)))
       .finally(() => setLoading(false));
   }, [filter, message]);
-  useEffect(load, [load]);
+  // revision 变化＝别处（侧边栏新建、项目页编辑）发生了写操作，跟着重拉
+  useEffect(load, [load, revision]);
 
-  const reload = () => {
-    load();
-    reloadProjects();
-  };
+  // 只发广播，让上面的 effect 去拉——直接 load() 会和 revision 触发的那次重复请求
+  const reload = () => reloadProjects();
 
   const view = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -76,6 +75,7 @@ export default function GlobalTaskView() {
             <button
               key={f.value}
               className={filter === f.value ? 'is-active' : undefined}
+              aria-pressed={filter === f.value}
               onClick={() => setFilter(f.value)}
             >
               {f.label}
@@ -119,16 +119,24 @@ export default function GlobalTaskView() {
                     onChange={(e) => toggleDone(t, e.target.checked)}
                   />
                 </span>
+                {/* StatusIcon 是 aria-hidden 的纯图形，状态得由这层的 aria-label 说出来，
+                    否则读屏用户听不到任务处在哪一列（AntD Tooltip 不产生 aria 文本） */}
                 <Tooltip title={archived ? '已归档' : TASK_STATUS_META[status].label}>
-                  <span style={{ display: 'flex', opacity: archived ? 0.4 : 1 }}>
+                  <span
+                    role="img"
+                    aria-label={`状态：${archived ? '已归档' : TASK_STATUS_META[status].label}`}
+                    style={{ display: 'flex', opacity: archived ? 0.4 : 1 }}
+                  >
                     <StatusIcon status={status} />
                   </span>
                 </Tooltip>
                 <span className="tcard-id">#{t.id}</span>
                 <span
                   className="chip chip-pri"
-                  style={{ ['--chip-c' as string]: `var(--pri-${t.priority})` }}
+                  role="img"
+                  aria-label={`优先级 ${t.priority.toUpperCase()}`}
                   title={`优先级 ${t.priority.toUpperCase()}`}
+                  style={{ ['--chip-c' as string]: `var(--pri-${t.priority})` }}
                 >
                   <PriorityIcon priority={t.priority} />
                 </span>

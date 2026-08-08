@@ -5,6 +5,7 @@ import {
   AppstoreFilled,
   AppstoreOutlined,
   KeyOutlined,
+  MenuOutlined,
   MoonOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -23,7 +24,14 @@ import TaskCreateModal from './TaskCreateModal';
 function useRouteProject(): string | undefined {
   const { pathname } = useLocation();
   const m = /^\/p\/([^/]+)/.exec(pathname);
-  return m ? decodeURIComponent(m[1]) : undefined;
+  if (!m) return undefined;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    // 畸形转义（手输 /p/foo%bar）会让 decodeURIComponent 抛 URIError。
+    // 这里在 AppShell 顶层每次渲染都跑，外面没有 error boundary——抛出去就是整站白屏。
+    return m[1];
+  }
 }
 
 /** 面包屑：从路由推导，不需要各页面自己上报。 */
@@ -51,18 +59,31 @@ function NavItem({
   icon,
   label,
   badge,
+  badgeTitle,
+  onNavigate,
 }: {
   to: string;
   end?: boolean;
   icon: React.ReactNode;
   label: string;
   badge?: number;
+  badgeTitle?: string;
+  onNavigate?: () => void;
 }) {
   return (
-    <NavLink to={to} end={end} className={({ isActive }) => `sb-item${isActive ? ' is-active' : ''}`}>
+    <NavLink
+      to={to}
+      end={end}
+      onClick={onNavigate}
+      className={({ isActive }) => `sb-item${isActive ? ' is-active' : ''}`}
+    >
       <span className="sb-item-icon">{icon}</span>
       <span className="sb-item-label">{label}</span>
-      {badge != null && badge > 0 && <span className="sb-item-badge">{badge}</span>}
+      {badge != null && badge > 0 && (
+        <span className="sb-item-badge" title={badgeTitle}>
+          {badge}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -82,10 +103,12 @@ export default function AppShell({
 }) {
   const { projects, scannedAt, scanning, rescan, reload, search, setSearch } = useBoard();
   const { message } = AntApp.useApp();
+  const { pathname } = useLocation();
   const routeProject = useRouteProject();
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
   const [tokenVal, setTokenVal] = useState(localStorage.getItem('board-token') ?? '');
+  const [navOpen, setNavOpen] = useState(false); // 仅窄屏用：侧边栏变抽屉后的开合
 
   const saveToken = () => {
     const v = tokenVal.trim();
@@ -95,8 +118,10 @@ export default function AppShell({
     message.success(v ? '已保存访问令牌' : '已清除访问令牌');
   };
 
+  // 在全局任务页，搜索词是在搜任务标题，拿它过滤项目导航只会把侧边栏清空成「无匹配项目」，
+  // 看起来像项目都没了。那一页就不过滤导航。
+  const q = pathname === '/tasks' ? '' : search.trim().toLowerCase();
   // 侧边栏项目列表：归档的不进导航（要看去「项目概览」开「含归档」），置顶恒前，其余按最近活跃
-  const q = search.trim().toLowerCase();
   const navProjects = projects
     .filter((p) => !p.archived)
     .filter((p) => !q || p.name.toLowerCase().includes(q) || p.displayName.toLowerCase().includes(q))
@@ -108,13 +133,18 @@ export default function AppShell({
           : 1,
     );
 
-  const totalActive = projects
-    .filter((p) => !p.archived)
-    .reduce((n, p) => n + activeManaged(p.managed), 0);
+  const live = projects.filter((p) => !p.archived);
+  // 「全局任务」徽标跟该页默认筛选（未完成）同口径，否则侧边栏写 12 点进去 34 条，看着像数错了
+  const openTasks = live.reduce(
+    (n, p) => n + p.managed.collected + p.managed.backlog + activeManaged(p.managed),
+    0,
+  );
 
   return (
     <div className="shell">
-      <aside className="sb">
+      {/* 窄屏下侧边栏变抽屉，遮罩点掉即关；宽屏 CSS 里不渲染它的效果 */}
+      {navOpen && <div className="sb-scrim" onClick={() => setNavOpen(false)} />}
+      <aside className={`sb${navOpen ? ' is-open' : ''}`}>
         <div className="sb-head">
           <div className="sb-brand">
             <span className="sb-mark">
@@ -140,19 +170,35 @@ export default function AppShell({
             />
           </label>
 
-          <button className="btn btn-solid btn-block" onClick={() => setCreateOpen(true)}>
+          <button
+            className="btn btn-solid btn-block"
+            onClick={() => {
+              setNavOpen(false);
+              setCreateOpen(true);
+            }}
+          >
             <PlusOutlined />
             新建任务
           </button>
 
           <div style={{ height: 10 }} />
 
-          <NavItem to="/" end icon={<AppstoreOutlined />} label="项目概览" badge={projects.length} />
+          <NavItem
+            to="/"
+            end
+            icon={<AppstoreOutlined />}
+            label="项目概览"
+            badge={live.length}
+            badgeTitle="未归档项目数"
+            onNavigate={() => setNavOpen(false)}
+          />
           <NavItem
             to="/tasks"
             icon={<UnorderedListOutlined />}
             label="全局任务"
-            badge={totalActive}
+            badge={openTasks}
+            badgeTitle="未完成任务数（与该页默认筛选一致）"
+            onNavigate={() => setNavOpen(false)}
           />
 
           <div className="sb-group">项目</div>
@@ -169,12 +215,17 @@ export default function AppShell({
                   to={`/p/${encodeURIComponent(p.name)}`}
                   className={`sb-item${p.name === routeProject ? ' is-active' : ''}${p.missing ? ' is-dim' : ''}`}
                   title={p.missing ? '目录已消失（任务仍保留）' : p.path}
+                  onClick={() => setNavOpen(false)}
                 >
                   <span className="sb-item-icon">
-                    <span className="dot" data-level={activityLevel(p.lastActive)} />
+                    <span className="dot" data-level={activityLevel(p.lastActive)} aria-hidden />
                   </span>
                   <span className="sb-item-label">{p.displayName}</span>
-                  {active > 0 && <span className="sb-item-badge">{active}</span>}
+                  {active > 0 && (
+                    <span className="sb-item-badge" title="活跃任务（待开发+进行中+待验收）">
+                      {active}
+                    </span>
+                  )}
                 </NavLink>
               );
             })
@@ -209,6 +260,14 @@ export default function AppShell({
 
       <main className="main">
         <header className="topbar">
+          <button
+            className="btn btn-ghost btn-icon sb-toggle"
+            onClick={() => setNavOpen(true)}
+            aria-label="打开导航"
+            aria-expanded={navOpen}
+          >
+            <MenuOutlined />
+          </button>
           <Crumbs />
         </header>
         <div className="page">{children}</div>

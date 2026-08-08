@@ -38,7 +38,10 @@ interface PendingImage {
 /**
  * 新建任务弹窗：布局与编辑弹窗一致，但图片先内存缓冲、创建后再上传；「取消」什么都不建。
  *
- * 两种入口：项目页看板传 projectName（落到该项目）；侧边栏全局新建不传，弹窗内自己选项目。
+ * 两种入口，区别在传不传 `projects`：
+ * - 项目页工具条 / 列头「＋」：只传 projectName，落到该项目，不出现选择器（已经知道落哪儿了）
+ * - 侧边栏「新建任务」：传 projects，**总是**出现选择器，projectName 只作预选。
+ *   站在某个项目页时也能从这里给别的项目建任务。
  */
 export default function TaskCreateModal({
   projectName,
@@ -48,12 +51,16 @@ export default function TaskCreateModal({
   onClose,
   onCreated,
 }: {
-  /** 目标项目目录名；不传＝全局入口，弹窗内出现项目选择器 */
+  /** 目标项目目录名；传了 projects 时它只是预选值 */
   projectName?: string;
-  /** 全局入口的可选项目列表（项目页入口不需要） */
+  /** 传了就显示项目选择器（全局入口）；不传＝项目上下文已定，不问 */
   projects?: ProjectInfo[];
-  /** 落到哪一列；不传＝后端默认「已收集」。看板列头的「＋」传对应列。 */
-  targetStatus?: Exclude<TaskStatus, 'archived'>;
+  /**
+   * 落到哪一列；不传＝后端默认「已收集」。看板列头的「＋」传对应列。
+   * 类型排除 done：置为已完成只能由人从「待验收」走 accept 端点验收，
+   * 不给任何「直接建一个已完成任务」的入口（见 SECURITY.md）。
+   */
+  targetStatus?: Exclude<TaskStatus, 'archived' | 'done'>;
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
@@ -178,8 +185,8 @@ export default function TaskCreateModal({
       onOk={create}
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12} onPaste={handlePaste}>
-        {/* 全局入口（无项目上下文）才出现：项目页开的弹窗已经知道落哪儿，不必多问一步 */}
-        {projectName === undefined && (
+        {/* 全局入口才出现：项目页开的弹窗已经知道落哪儿，不必多问一步 */}
+        {projects !== undefined && (
           <div>
             <Text type="secondary" style={{ fontSize: 12 }}>
               项目

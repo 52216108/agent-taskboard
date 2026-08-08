@@ -8,6 +8,8 @@ import { PriorityIcon, StatusIcon } from './StatusIcon';
 import TaskEditModal from './TaskEditModal';
 
 type BoardStatus = Exclude<TaskStatus, 'archived'>;
+/** 可作为新建目标的列：已完成不在其中——置 done 只能由人从「待验收」走 accept 端点 */
+type CreatableStatus = Exclude<BoardStatus, 'done'>;
 
 // 单列超过此数默认收起，避免成熟项目的「已完成」列堆几百张卡片把其余列压成一条缝。
 const COLLAPSE_LIMIT = 15;
@@ -131,7 +133,7 @@ export default function TaskBoard({
   tasks: Task[];
   onChange: () => void;
   /** 列头「＋」回调：由页面弹新建弹窗（弹窗归页面所有，工具条上的「新建任务」共用同一个） */
-  onCreate: (status: BoardStatus) => void;
+  onCreate: (status: CreatableStatus) => void;
 }) {
   const { message } = AntApp.useApp();
   const [over, setOver] = useState<BoardStatus | null>(null);

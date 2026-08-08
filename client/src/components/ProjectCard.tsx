@@ -17,14 +17,16 @@ import { PriorityIcon } from './StatusIcon';
 function StatusBar({ managed }: { managed: ProjectInfo['managed'] }) {
   const cols = BOARD_STATUSES.filter((s) => managed[s] > 0);
   if (cols.length === 0) return null;
+  // aria 放容器上（role=img + 整句摘要）：分段是纯装饰，给每个裸 span 挂 aria-label 读屏多半会忽略
   return (
-    <div className="pbar">
+    <div
+      className="pbar"
+      role="img"
+      aria-label={`任务分布：${cols.map((s) => `${TASK_STATUS_META[s].label} ${managed[s]}`).join('，')}`}
+    >
       {cols.map((s) => (
         <Tooltip key={s} title={`${TASK_STATUS_META[s].label} ${managed[s]}`}>
-          <span
-            style={{ flex: managed[s], background: `var(--st-${s}-fg)` }}
-            aria-label={`${TASK_STATUS_META[s].label} ${managed[s]}`}
-          />
+          <span aria-hidden style={{ flex: managed[s], background: `var(--st-${s}-fg)` }} />
         </Tooltip>
       ))}
     </div>

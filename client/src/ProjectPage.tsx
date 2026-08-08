@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Alert, App as AntApp, Button, Input, Spin, Tooltip } from 'antd';
+import { Alert, App as AntApp, Button, Input, Spin, Tooltip, Typography } from 'antd';
 import {
   EditOutlined,
   ImportOutlined,
@@ -17,14 +17,15 @@ import TaskBoard from './components/TaskBoard';
 import TaskCreateModal from './components/TaskCreateModal';
 
 type Tab = 'tasks' | 'todomd' | 'meta';
-type BoardStatus = Exclude<TaskStatus, 'archived'>;
+/** 可作为新建目标的列：排除归档（软删）和已完成（只能人工验收进入） */
+type BoardStatus = Exclude<TaskStatus, 'archived' | 'done'>;
 
 const TODO_MARK: Record<TodoItem['status'], string> = { open: '○', doing: '◐', done: '●' };
 
 export default function ProjectPage() {
   const { name = '' } = useParams();
   const { message } = AntApp.useApp();
-  const { reload: reloadProjects } = useBoard();
+  const { reload: reloadProjects, revision } = useBoard();
   const [data, setData] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('tasks');
@@ -34,24 +35,36 @@ export default function ProjectPage() {
   // null=关闭；undefined=开着但不指定列（工具条按钮）；具体状态=从该列的「＋」开的
   const [createIn, setCreateIn] = useState<BoardStatus | null | undefined>(null);
 
-  const reload = useCallback(() => {
-    // 刷新失败不要清空已有数据（否则页面突变 Empty），提示即可
-    fetchProjectDetail(name)
-      .then(setData)
-      .catch((e) => message.error(String(e.message ?? e)));
-    reloadProjects(); // 侧边栏的活跃任务计数跟着动
-  }, [name, message, reloadProjects]);
+  // 写操作后只发广播：BoardContext 重拉项目列表并把 revision +1，下面的 effect 收到后重拉详情。
+  // 不在这里直接 fetch 详情，否则一次编辑会打两遍 detail 接口。
+  const reload = useCallback(() => reloadProjects(), [reloadProjects]);
 
+  // 切项目时先清空，避免旧项目的看板残留一帧
   useEffect(() => {
     setLoading(true);
     setData(null);
     setEditing(false);
     setTab('tasks');
-    fetchProjectDetail(name)
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
   }, [name]);
+
+  // 切项目 或 任何写操作（含侧边栏「新建任务」建到本项目）都重拉详情。
+  // 刷新失败不清空已有数据（否则页面突变 Empty），提示即可。
+  useEffect(() => {
+    let alive = true;
+    fetchProjectDetail(name)
+      .then((d) => {
+        if (alive) setData(d);
+      })
+      .catch((e) => {
+        if (alive) message.error(String(e.message ?? e));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [name, revision, message]);
 
   const startEdit = () => {
     if (!data) return;
@@ -113,6 +126,7 @@ export default function ProjectPage() {
             <button
               key={t.key}
               className={tab === t.key ? 'is-active' : undefined}
+              aria-pressed={tab === t.key}
               onClick={() => setTab(t.key)}
             >
               {t.label}
@@ -126,8 +140,9 @@ export default function ProjectPage() {
         <span className="toolbar-count">{data.tasks.length} 任务</span>
         <Tooltip title={data.pinned ? '取消置顶' : '置顶'}>
           <button
-            className={`btn btn-ghost btn-icon${data.pinned ? ' is-on' : ''}`}
+            className="btn btn-ghost btn-icon"
             style={data.pinned ? { color: 'var(--accent)' } : undefined}
+            aria-pressed={data.pinned}
             onClick={() => toggle({ pinned: !data.pinned })}
             aria-label="置顶"
           >
@@ -138,6 +153,7 @@ export default function ProjectPage() {
           <button
             className="btn btn-ghost btn-icon"
             style={data.archived ? { color: 'var(--warn)' } : undefined}
+            aria-pressed={data.archived}
             onClick={() => toggle({ archived: !data.archived })}
             aria-label="归档"
           >
@@ -240,7 +256,12 @@ export default function ProjectPage() {
             {!data.missing && (
               <>
                 <dt>路径</dt>
-                <dd style={{ fontFamily: 'var(--mono)' }}>{data.path}</dd>
+                <dd>
+                  {/* 保留可复制：拿去 cd 过去是这行最常见的用途 */}
+                  <Typography.Text copyable style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
+                    {data.path}
+                  </Typography.Text>
+                </dd>
               </>
             )}
             {data.git.isRepo && (

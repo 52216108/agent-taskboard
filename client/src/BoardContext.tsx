@@ -14,10 +14,17 @@ interface BoardState {
   loading: boolean;
   scanning: boolean;
   scannedAt: number | null;
-  /** 重新拉取项目列表（不触发磁盘扫描）。任何写操作后调它刷新侧边栏计数。 */
+  /** 任何写操作后调它：重拉项目列表 + 递增 revision 通知当前页刷新。 */
   reload: () => void;
   /** 触发后端重新扫描磁盘。 */
   rescan: () => void;
+  /**
+   * 数据版本号，每次 reload/rescan 自增。
+   *
+   * 页面把它放进自己 fetch 的 useEffect 依赖里，就能收到「别处发生了写操作」的广播——
+   * 否则侧边栏建的任务落了库，项目页/全局任务页却因为各拉各的而看不见（要手动刷新才出现）。
+   */
+  revision: number;
   search: string;
   setSearch: (v: string) => void;
 }
@@ -37,6 +44,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [search, setSearch] = useState('');
+  const [revision, setRevision] = useState(0);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -44,6 +52,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       .then((r) => {
         setProjects(r.projects);
         setScannedAt(r.scannedAt);
+        setRevision((n) => n + 1);
       })
       .catch((e) => message.error(`加载失败：${e.message}`))
       .finally(() => setLoading(false));
@@ -57,6 +66,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       .then((r) => {
         setProjects(r.projects);
         setScannedAt(r.scannedAt);
+        setRevision((n) => n + 1);
         message.success(`已重新扫描，共 ${r.count} 个项目`);
       })
       .catch((e) => message.error(`扫描失败：${e.message}`))
@@ -64,8 +74,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   }, [message]);
 
   const value = useMemo<BoardState>(
-    () => ({ projects, loading, scanning, scannedAt, reload, rescan, search, setSearch }),
-    [projects, loading, scanning, scannedAt, reload, rescan, search],
+    () => ({ projects, loading, scanning, scannedAt, reload, rescan, revision, search, setSearch }),
+    [projects, loading, scanning, scannedAt, reload, rescan, revision, search],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
