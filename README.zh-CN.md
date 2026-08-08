@@ -65,6 +65,11 @@ agent 给自己列的计划活在上下文窗口里，而上下文是会丢失�
 
 ![任务看板](docs/screenshots/tasks.png)
 
+点开一张卡片就是任务详情——描述是给 agent 看的上下文，子任务清单可勾选，
+截图直接粘进去（agent 在 `board here` 里能拿到图片的绝对路径）：
+
+![任务详情](docs/screenshots/task-detail.png)
+
 所有项目的任务汇成一张表：
 
 ![全局任务视图](docs/screenshots/global-tasks.png)
