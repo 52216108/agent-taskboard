@@ -77,6 +77,12 @@ the Claude Code skill.
 
 ![Task board](docs/screenshots/tasks.png)
 
+Open a card and you get the task detail — the description is the context your agent reads, subtasks are
+ticked off in place, and screenshots paste straight in (agents get the absolute image path from
+`board here`):
+
+![Task detail](docs/screenshots/task-detail.png)
+
 Everything across every project, in one list:
 
 ![Global task view](docs/screenshots/global-tasks.png)
