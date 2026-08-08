@@ -1,26 +1,20 @@
 import { useRef, useState } from 'react';
-import { Button, Tag, Typography, theme, Dropdown, Empty, App as AntApp } from 'antd';
-import { PlusOutlined, MoreOutlined, CalendarOutlined } from '@ant-design/icons';
-import type { Task, TaskStatus, TaskPriority } from '../types';
+import { Dropdown, App as AntApp } from 'antd';
+import { MoreOutlined, PlusOutlined, CalendarOutlined, CheckSquareOutlined } from '@ant-design/icons';
+import type { Task, TaskStatus } from '../types';
 import { updateTask, setTaskStatus } from '../api';
 import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_META } from '../util';
+import { PriorityIcon, StatusIcon } from './StatusIcon';
 import TaskEditModal from './TaskEditModal';
-import TaskCreateModal from './TaskCreateModal';
 
-const { Text } = Typography;
-
-const COLUMNS = BOARD_STATUSES.map((key) => ({ key, label: TASK_STATUS_META[key].label }));
+type BoardStatus = Exclude<TaskStatus, 'archived'>;
+/** 可作为新建目标的列：已完成不在其中——置 done 只能由人从「待验收」走 accept 端点 */
+type CreatableStatus = Exclude<BoardStatus, 'done'>;
 
 // 单列超过此数默认收起，避免成熟项目的「已完成」列堆几百张卡片把其余列压成一条缝。
 const COLLAPSE_LIMIT = 15;
 
-const PRIORITY_COLOR: Record<TaskPriority, string> = {
-  p0: 'red',
-  p1: 'volcano',
-  p2: 'blue',
-  p3: 'default',
-};
-
+/** 任务卡片：编号行 → 标题 → 描述摘要 → 页脚标记，四段自上而下信息密度递减。 */
 function TaskCard({
   task,
   onChange,
@@ -30,21 +24,30 @@ function TaskCard({
   onChange: () => void;
   onEdit: (t: Task) => void;
 }) {
-  const { token } = theme.useToken();
   const { message } = AntApp.useApp();
   const dragging = useRef(false);
+  const [held, setHeld] = useState(false);
 
   const act = (fn: () => Promise<unknown>) =>
-    fn().then(onChange).catch((e) => message.error(String(e.message ?? e)));
+    fn()
+      .then(onChange)
+      .catch((e) => message.error(String(e.message ?? e)));
+
+  const done = task.status === 'done';
+  const doneCount = task.subtasks.filter((s) => s.done).length;
+  const overdue = !!task.dueDate && task.dueDate.slice(0, 10) < new Date().toISOString().slice(0, 10) && !done;
 
   return (
-    <div
+    <article
       draggable
+      className={`tcard${done ? ' is-done' : ''}${held ? ' is-dragging' : ''}`}
       onDragStart={(e) => {
         dragging.current = true;
+        setHeld(true);
         e.dataTransfer.setData('text/task-id', String(task.id));
       }}
       onDragEnd={() => {
+        setHeld(false);
         // 兜底：若拖拽后未触发 click，稍后复位，避免后续单击被吞
         setTimeout(() => (dragging.current = false), 50);
       }}
@@ -55,34 +58,15 @@ function TaskCard({
         }
         onEdit(task);
       }}
-      style={{
-        background: token.colorBgContainer,
-        border: `1px solid ${token.colorBorderSecondary}`,
-        borderRadius: token.borderRadius,
-        padding: 8,
-        marginBottom: 8,
-        cursor: 'pointer',
-      }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-        {/* 编号与标题分列两个 Text：编号不跟随「已完成」的删除线，它是标识不是内容；
-            flexShrink:0 保证长标题换行时编号不被挤压 */}
-        <div style={{ display: 'flex', gap: 4, minWidth: 0 }}>
-          <Text
-            style={{ fontSize: 12, color: token.colorTextTertiary, flexShrink: 0, lineHeight: '20px' }}
-          >
-            #{task.id}
-          </Text>
-          <Text
-            style={{ fontSize: 13 }}
-            delete={task.status === 'done'}
-            type={task.status === 'done' ? 'secondary' : undefined}
-          >
-            {task.title}
-          </Text>
-        </div>
+      <div className="tcard-top">
+        <span className="tcard-id">#{task.id}</span>
+        <span className="chip chip-type" style={{ ['--chip-c' as string]: `var(--ty-${task.taskType})` }}>
+          {TASK_TYPE_META[task.taskType].label}
+        </span>
+        {task.rejectReason && <span className="chip chip-warn">已打回</span>}
         {/* ⋮ 阻止冒泡，避免触发卡片点击与拖拽 */}
-        <span onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+        <span onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex' }}>
           <Dropdown
             trigger={['click']}
             menu={{
@@ -106,65 +90,58 @@ function TaskCard({
               },
             }}
           >
-            <MoreOutlined style={{ color: token.colorTextTertiary, cursor: 'pointer' }} />
+            <button className="tcard-more" aria-label="任务操作">
+              <MoreOutlined />
+            </button>
           </Dropdown>
         </span>
       </div>
-      <div style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Tag color={TASK_TYPE_META[task.taskType].color} style={{ marginInlineEnd: 0 }}>
-          {TASK_TYPE_META[task.taskType].label}
-        </Tag>
-        <Tag color={PRIORITY_COLOR[task.priority]} style={{ marginInlineEnd: 0 }}>
+
+      <div className="tcard-title">{task.title}</div>
+
+      {task.description && <div className="tcard-desc">{task.description}</div>}
+
+      <div className="tcard-foot">
+        <span className="chip chip-pri" style={{ ['--chip-c' as string]: `var(--pri-${task.priority})` }}>
+          <PriorityIcon priority={task.priority} />
           {task.priority.toUpperCase()}
-        </Tag>
-        {task.assignee && (
-          <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
-            @{task.assignee}
-          </Tag>
-        )}
-        {task.rejectReason && (
-          <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
-            已打回
-          </Tag>
-        )}
-        {task.source === 'todo_md' && (
-          <Tag style={{ marginInlineEnd: 0 }} bordered={false}>
-            来自 todo.md
-          </Tag>
-        )}
+        </span>
+        {task.assignee && <span className="chip">@{task.assignee}</span>}
         {task.subtasks.length > 0 && (
-          <Text style={{ fontSize: 11, color: token.colorTextTertiary }}>
-            ☑ {task.subtasks.filter((s) => s.done).length}/{task.subtasks.length}
-          </Text>
+          <span className="tcard-meta">
+            <CheckSquareOutlined />
+            {doneCount}/{task.subtasks.length}
+          </span>
         )}
         {task.dueDate && (
-          <Text style={{ fontSize: 11, color: token.colorTextTertiary }}>
-            <CalendarOutlined /> {task.dueDate.slice(0, 10)}
-          </Text>
+          <span className={`tcard-meta${overdue ? ' is-overdue' : ''}`}>
+            <CalendarOutlined />
+            {task.dueDate.slice(5, 10)}
+          </span>
         )}
+        {task.source === 'todo_md' && <span className="tcard-meta">todo.md</span>}
       </div>
-    </div>
+    </article>
   );
 }
 
 export default function TaskBoard({
-  projectName,
   tasks,
   onChange,
+  onCreate,
 }: {
-  projectName: string;
   tasks: Task[];
   onChange: () => void;
+  /** 列头「＋」回调：由页面弹新建弹窗（弹窗归页面所有，工具条上的「新建任务」共用同一个） */
+  onCreate: (status: CreatableStatus) => void;
 }) {
-  const { token } = theme.useToken();
   const { message } = AntApp.useApp();
-  const [over, setOver] = useState<TaskStatus | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [over, setOver] = useState<BoardStatus | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<TaskStatus>>(new Set());
+  const [expanded, setExpanded] = useState<Set<BoardStatus>>(new Set());
 
-  const toggleExpand = (key: TaskStatus) =>
+  const toggleExpand = (key: BoardStatus) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -177,7 +154,7 @@ export default function TaskBoard({
     setEditOpen(true);
   };
 
-  const drop = (status: TaskStatus) => (e: React.DragEvent) => {
+  const drop = (status: BoardStatus) => (e: React.DragEvent) => {
     e.preventDefault();
     setOver(null);
     const id = Number(e.dataTransfer.getData('text/task-id'));
@@ -185,80 +162,79 @@ export default function TaskBoard({
     const task = tasks.find((x) => x.id === id);
     if (!task || task.status === status) return;
     // 拖到「已完成」列＝人工验收，走 accept 端点；其余列走 PATCH
-    setTaskStatus(id, status).then(onChange).catch((e2) => message.error(String(e2.message ?? e2)));
+    setTaskStatus(id, status)
+      .then(onChange)
+      .catch((e2) => message.error(String(e2.message ?? e2)));
   };
 
   return (
     <>
-      <div style={{ marginBottom: 12 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          新建任务
-        </Button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0, 1fr))`, gap: 8 }}>
-        {COLUMNS.map((col) => {
-          const raw = tasks.filter((t) => t.status === col.key);
+      <div className="board">
+        {BOARD_STATUSES.map((key) => {
+          const raw = tasks.filter((t) => t.status === key);
           // 「已完成」列按完成时间倒序：最近完成的排在前，收起时优先展示新鲜结果
           const items =
-            col.key === 'done'
+            key === 'done'
               ? [...raw].sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
               : raw;
-          const isExpanded = expanded.has(col.key);
+          const isExpanded = expanded.has(key);
           const overflow = items.length > COLLAPSE_LIMIT;
           const visible = overflow && !isExpanded ? items.slice(0, COLLAPSE_LIMIT) : items;
           return (
-            <div
-              key={col.key}
+            <section
+              key={key}
+              className={`col${over === key ? ' is-over' : ''}`}
+              style={{
+                ['--col-bg' as string]: `var(--st-${key}-bg)`,
+                ['--col-bg-hover' as string]: `var(--st-${key}-bg-hover)`,
+                ['--col-fg' as string]: `var(--st-${key}-fg)`,
+              }}
               onDragOver={(e) => {
                 e.preventDefault();
-                setOver(col.key);
+                setOver(key);
               }}
-              onDragLeave={() => setOver((o) => (o === col.key ? null : o))}
-              onDrop={drop(col.key)}
-              style={{
-                background: over === col.key ? token.colorFillTertiary : token.colorFillQuaternary,
-                borderRadius: token.borderRadius,
-                padding: 8,
-                transition: 'background 0.15s',
-              }}
+              onDragLeave={() => setOver((o) => (o === key ? null : o))}
+              onDrop={drop(key)}
             >
-              <Text strong style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                {col.label} {items.length > 0 && `· ${items.length}`}
-              </Text>
-              {/* 整页布局：列随内容自然撑开，用页面滚动（不再限高，那是抽屉时代的约束）*/}
-              <div style={{ marginTop: 8, minHeight: 60 }}>
+              <header className="col-head">
+                <StatusIcon status={key} />
+                <span className="col-name">{TASK_STATUS_META[key].label}</span>
+                <span className="col-count">{items.length}</span>
+                {/* 「已完成」不给建入口：置 done 只能由人从「待验收」验收，见 SECURITY.md */}
+                {key !== 'done' && (
+                  <button
+                    className="col-add"
+                    onClick={() => onCreate(key)}
+                    aria-label={`在${TASK_STATUS_META[key].label}新建任务`}
+                    title={`在${TASK_STATUS_META[key].label}新建任务`}
+                  >
+                    <PlusOutlined />
+                  </button>
+                )}
+              </header>
+
+              {/* 列随内容自然撑开，由外层 .page 滚动（不再限高，那是抽屉时代的约束）*/}
+              <div className="col-body">
                 {items.length === 0 ? (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={false} style={{ margin: '8px 0' }} />
+                  <div className="col-empty">暂无</div>
                 ) : (
                   <>
                     {visible.map((t) => (
-                      <TaskCard
-                        key={t.id}
-                        task={t}
-                        onChange={onChange}
-                        onEdit={openEdit}
-                      />
+                      <TaskCard key={t.id} task={t} onChange={onChange} onEdit={openEdit} />
                     ))}
                     {overflow && (
-                      <Button type="link" size="small" block onClick={() => toggleExpand(col.key)}>
+                      <button className="col-more" onClick={() => toggleExpand(key)}>
                         {isExpanded ? '收起' : `展开全部 ${items.length} 条`}
-                      </Button>
+                      </button>
                     )}
                   </>
                 )}
               </div>
-            </div>
+            </section>
           );
         })}
       </div>
 
-      <TaskCreateModal
-        projectName={projectName}
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={onChange}
-      />
       <TaskEditModal task={editTask} open={editOpen} onClose={() => setEditOpen(false)} onSaved={onChange} />
     </>
   );

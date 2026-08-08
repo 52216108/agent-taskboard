@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Segmented, Tag, Typography, Space, theme, Empty, Spin, Checkbox, Tooltip, App as AntApp } from 'antd';
-import { ClockCircleTwoTone } from '@ant-design/icons';
-import type { GlobalTask, TaskPriority, TaskStatus } from '../types';
+import { useNavigate } from 'react-router-dom';
+import { App as AntApp, Checkbox, Spin, Tooltip } from 'antd';
+import { CalendarOutlined } from '@ant-design/icons';
+import type { GlobalTask } from '../types';
 import { fetchAllTasks, setTaskStatus } from '../api';
 import { TASK_STATUS_META, TASK_TYPE_META } from '../util';
+import { useBoard } from '../BoardContext';
+import { PriorityIcon, StatusIcon } from './StatusIcon';
 import TaskEditModal from './TaskEditModal';
 
-const { Text } = Typography;
-
-const PRIORITY_COLOR: Record<TaskPriority, string> = { p0: 'red', p1: 'volcano', p2: 'blue', p3: 'default' };
 type Filter = 'open' | 'all' | 'today' | 'overdue' | 'high';
 const FILTERS: Array<{ value: Filter; label: string }> = [
   { value: 'open', label: '未完成' },
@@ -20,17 +20,11 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function GlobalTaskView({
-  search,
-  onProjectClick,
-  onChanged,
-}: {
-  search: string;
-  onProjectClick: (name: string) => void;
-  onChanged: () => void;
-}) {
-  const { token } = theme.useToken();
+/** 全局任务：跨项目一条条平铺，左侧状态环表达进度，右侧标出所属项目。 */
+export default function GlobalTaskView() {
   const { message } = AntApp.useApp();
+  const navigate = useNavigate();
+  const { search, reload: reloadProjects, revision } = useBoard();
   const [tasks, setTasks] = useState<GlobalTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('open');
@@ -44,12 +38,11 @@ export default function GlobalTaskView({
       .catch((e) => message.error(String(e.message ?? e)))
       .finally(() => setLoading(false));
   }, [filter, message]);
-  useEffect(load, [load]);
+  // revision 变化＝别处（侧边栏新建、项目页编辑）发生了写操作，跟着重拉
+  useEffect(load, [load, revision]);
 
-  const reload = () => {
-    load();
-    onChanged();
-  };
+  // 只发广播，让上面的 effect 去拉——直接 load() 会和 revision 触发的那次重复请求
+  const reload = () => reloadProjects();
 
   const view = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -76,103 +69,111 @@ export default function GlobalTaskView({
 
   return (
     <>
-      <Segmented
-        value={filter}
-        onChange={(v) => setFilter(v as Filter)}
-        options={FILTERS}
-        style={{ marginBottom: 16 }}
-      />
-      <Spin spinning={loading}>
-        {view.length === 0 && !loading ? (
-          <Empty description={search ? '无匹配任务' : '该筛选下暂无任务'} />
-        ) : (
-          <Space direction="vertical" style={{ width: '100%' }} size={6}>
-            {view.map((t) => {
-              const overdue = !!t.dueDate && t.dueDate.slice(0, 10) < today() && t.status !== 'done';
-              return (
-                <div
-                  key={t.id}
-                  onClick={() => {
-                    setEditing(t);
-                    setEditOpen(true);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '8px 12px',
-                    border: `1px solid ${token.colorBorderSecondary}`,
-                    borderRadius: token.borderRadius,
-                    cursor: 'pointer',
-                    background: token.colorBgContainer,
-                  }}
-                >
-                  <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex' }}>
-                    <Checkbox
-                      checked={t.status === 'done'}
-                      onChange={(e) => toggleDone(t, e.target.checked)}
-                    />
-                  </span>
-                  <Tag color={TASK_TYPE_META[t.taskType].color} style={{ marginInlineEnd: 0 }}>
-                    {TASK_TYPE_META[t.taskType].label}
-                  </Tag>
-                  <Tag color={PRIORITY_COLOR[t.priority]} style={{ marginInlineEnd: 0 }}>
-                    {t.priority.toUpperCase()}
-                  </Tag>
-                  {t.assignee && (
-                    <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
-                      @{t.assignee}
-                    </Tag>
-                  )}
-                  {t.rejectReason && (
-                    <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
-                      已打回
-                    </Tag>
-                  )}
-                  {/* 非"待开发/已完成"的中间态打状态标签（已收集/待规划/进行中/待验收）；已完成靠删除线表达 */}
-                  {(['collected', 'backlog', 'doing', 'review'] as TaskStatus[]).includes(t.status) && (
-                    <Tag
-                      color={TASK_STATUS_META[t.status as 'collected' | 'backlog' | 'doing' | 'review'].color}
-                      style={{ marginInlineEnd: 0 }}
-                    >
-                      {TASK_STATUS_META[t.status as 'collected' | 'backlog' | 'doing' | 'review'].label}
-                    </Tag>
-                  )}
-                  <Text
-                    delete={t.status === 'done'}
-                    type={t.status === 'done' ? 'secondary' : undefined}
-                    style={{ flex: 1, minWidth: 0 }}
-                    ellipsis
+      <div className="toolbar">
+        <div className="seg">
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              className={filter === f.value ? 'is-active' : undefined}
+              aria-pressed={filter === f.value}
+              onClick={() => setFilter(f.value)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <span className="toolbar-spacer" />
+        <span className="toolbar-count">{view.length} 条</span>
+      </div>
+
+      {loading && tasks.length === 0 ? (
+        <div className="empty">
+          <Spin />
+        </div>
+      ) : view.length === 0 ? (
+        <div className="empty">{search ? '无匹配任务' : '该筛选下暂无任务'}</div>
+      ) : (
+        <div className="stack">
+          {view.map((t) => {
+            const done = t.status === 'done';
+            const overdue = !!t.dueDate && t.dueDate.slice(0, 10) < today() && !done;
+            // 归档是软删、不在六列里：借「已收集」的空心环画个形，但压暗并另打「已归档」标，
+            // 免得看起来像一条待分诊的新任务
+            const archived = t.status === 'archived';
+            // 直接写三元而不是用 archived——TS 只在这种写法下把 t.status 收窄成 BoardStatus
+            const status = t.status === 'archived' ? 'collected' : t.status;
+            return (
+              <div
+                key={t.id}
+                className={`trow${done ? ' is-done' : ''}`}
+                onClick={() => {
+                  setEditing(t);
+                  setEditOpen(true);
+                }}
+              >
+                {/* 归档任务不给勾：勾了会打到 accept 端点，而它只收「待验收 → 已完成」，必然报错 */}
+                <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex' }}>
+                  <Checkbox
+                    checked={done}
+                    disabled={archived}
+                    onChange={(e) => toggleDone(t, e.target.checked)}
+                  />
+                </span>
+                {/* StatusIcon 是 aria-hidden 的纯图形，状态得由这层的 aria-label 说出来，
+                    否则读屏用户听不到任务处在哪一列（AntD Tooltip 不产生 aria 文本） */}
+                <Tooltip title={archived ? '已归档' : TASK_STATUS_META[status].label}>
+                  <span
+                    role="img"
+                    aria-label={`状态：${archived ? '已归档' : TASK_STATUS_META[status].label}`}
+                    style={{ display: 'flex', opacity: archived ? 0.4 : 1 }}
                   >
-                    {t.title}
-                  </Text>
-                  {t.dueDate && (
-                    <Text
-                      style={{ fontSize: 12, color: overdue ? token.colorError : token.colorTextTertiary }}
-                    >
-                      <ClockCircleTwoTone twoToneColor={overdue ? '#cf1322' : token.colorTextDisabled} />{' '}
-                      {t.dueDate.slice(5, 10)}
-                    </Text>
-                  )}
-                  <Tooltip title="打开该项目">
-                    <Tag
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onProjectClick(t.projectDir);
-                      }}
-                      style={{ marginInlineEnd: 0, cursor: 'pointer', maxWidth: 160 }}
-                    >
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.projectName}
-                      </span>
-                    </Tag>
-                  </Tooltip>
-                </div>
-              );
-            })}
-          </Space>
-        )}
-      </Spin>
+                    <StatusIcon status={status} />
+                  </span>
+                </Tooltip>
+                <span className="tcard-id">#{t.id}</span>
+                <span
+                  className="chip chip-pri"
+                  role="img"
+                  aria-label={`优先级 ${t.priority.toUpperCase()}`}
+                  title={`优先级 ${t.priority.toUpperCase()}`}
+                  style={{ ['--chip-c' as string]: `var(--pri-${t.priority})` }}
+                >
+                  <PriorityIcon priority={t.priority} />
+                </span>
+                <span
+                  className="chip chip-type"
+                  style={{ ['--chip-c' as string]: `var(--ty-${t.taskType})` }}
+                >
+                  {TASK_TYPE_META[t.taskType].label}
+                </span>
+                {archived && <span className="chip">已归档</span>}
+                {t.rejectReason && <span className="chip chip-warn">已打回</span>}
+
+                <span className="trow-title">{t.title}</span>
+
+                {t.assignee && <span className="chip">@{t.assignee}</span>}
+                {t.dueDate && (
+                  <span className={`tcard-meta${overdue ? ' is-overdue' : ''}`}>
+                    <CalendarOutlined />
+                    {t.dueDate.slice(5, 10)}
+                  </span>
+                )}
+                <Tooltip title="打开该项目">
+                  <span
+                    className="trow-proj"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/p/${encodeURIComponent(t.projectDir)}`);
+                    }}
+                  >
+                    {t.projectName}
+                  </span>
+                </Tooltip>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <TaskEditModal task={editing} open={editOpen} onClose={() => setEditOpen(false)} onSaved={reload} />
     </>

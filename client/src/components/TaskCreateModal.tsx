@@ -16,9 +16,9 @@ import {
 import type { UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { UploadOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { TaskPriority, TaskType } from '../types';
+import type { ProjectInfo, TaskPriority, TaskStatus, TaskType } from '../types';
 import { createTask, uploadTaskImage } from '../api';
-import { TASK_TYPE_OPTIONS } from '../util';
+import { TASK_STATUS_META, TASK_TYPE_OPTIONS } from '../util';
 
 const { Text } = Typography;
 
@@ -35,19 +35,38 @@ interface PendingImage {
   url: string;
 }
 
-/** 新建任务弹窗：布局与编辑弹窗一致，但图片先内存缓冲、创建后再上传；「取消」什么都不建。 */
+/**
+ * 新建任务弹窗：布局与编辑弹窗一致，但图片先内存缓冲、创建后再上传；「取消」什么都不建。
+ *
+ * 两种入口，区别在传不传 `projects`：
+ * - 项目页工具条 / 列头「＋」：只传 projectName，落到该项目，不出现选择器（已经知道落哪儿了）
+ * - 侧边栏「新建任务」：传 projects，**总是**出现选择器，projectName 只作预选。
+ *   站在某个项目页时也能从这里给别的项目建任务。
+ */
 export default function TaskCreateModal({
   projectName,
+  projects,
+  targetStatus,
   open,
   onClose,
   onCreated,
 }: {
-  projectName: string;
+  /** 目标项目目录名；传了 projects 时它只是预选值 */
+  projectName?: string;
+  /** 传了就显示项目选择器（全局入口）；不传＝项目上下文已定，不问 */
+  projects?: ProjectInfo[];
+  /**
+   * 落到哪一列；不传＝后端默认「已收集」。看板列头的「＋」传对应列。
+   * 类型排除 done：置为已完成只能由人从「待验收」走 accept 端点验收，
+   * 不给任何「直接建一个已完成任务」的入口（见 SECURITY.md）。
+   */
+  targetStatus?: Exclude<TaskStatus, 'archived' | 'done'>;
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const { message } = AntApp.useApp();
+  const [project, setProject] = useState<string | undefined>(projectName);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('p2');
@@ -67,9 +86,10 @@ export default function TaskCreateModal({
     });
   }, []);
 
-  // 每次打开重置为空白
+  // 每次打开重置为空白（项目预选回当前上下文；全局入口保持上次选择为空）
   useEffect(() => {
     if (!open) return;
+    setProject(projectName);
     setTitle('');
     setDescription('');
     setPriority('p2');
@@ -77,7 +97,7 @@ export default function TaskCreateModal({
     setAssignee('');
     setDue(null);
     resetPending();
-  }, [open, resetPending]);
+  }, [open, projectName, resetPending]);
 
   // 关闭（取消）：主动释放预览 URL，再交回父组件
   const handleCancel = () => {
@@ -114,6 +134,10 @@ export default function TaskCreateModal({
 
   const create = () => {
     if (saving) return; // 防重复提交（含标题框回车连按）
+    if (!project) {
+      message.warning('请选择目标项目');
+      return;
+    }
     const t = title.trim();
     if (!t) {
       message.warning('标题不能为空');
@@ -124,13 +148,14 @@ export default function TaskCreateModal({
       return;
     }
     setSaving(true);
-    createTask(projectName, {
+    createTask(project, {
       title: t,
       description: description.trim() || null,
       priority,
       taskType,
       dueDate: due,
       assignee: assignee.trim() || null,
+      status: targetStatus,
     })
       .then(async (created) => {
         // 拿到 id 后逐张上传缓冲图片；单张失败不阻断其余（任务已建成，只提示）
@@ -151,7 +176,7 @@ export default function TaskCreateModal({
 
   return (
     <Modal
-      title="新建任务"
+      title={targetStatus ? `新建任务 · ${TASK_STATUS_META[targetStatus].label}` : '新建任务'}
       open={open}
       onCancel={handleCancel}
       okText="创建"
@@ -160,6 +185,26 @@ export default function TaskCreateModal({
       onOk={create}
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12} onPaste={handlePaste}>
+        {/* 全局入口才出现：项目页开的弹窗已经知道落哪儿，不必多问一步 */}
+        {projects !== undefined && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              项目
+            </Text>
+            <Select
+              value={project}
+              onChange={setProject}
+              disabled={saving}
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择目标项目"
+              style={{ width: '100%' }}
+              options={(projects ?? [])
+                .filter((p) => !p.archived)
+                .map((p) => ({ value: p.name, label: p.displayName }))}
+            />
+          </div>
+        )}
         <div>
           <Text type="secondary" style={{ fontSize: 12 }}>
             标题
