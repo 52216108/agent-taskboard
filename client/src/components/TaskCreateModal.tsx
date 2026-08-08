@@ -16,9 +16,9 @@ import {
 import type { UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { UploadOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { TaskPriority, TaskType } from '../types';
+import type { ProjectInfo, TaskPriority, TaskStatus, TaskType } from '../types';
 import { createTask, uploadTaskImage } from '../api';
-import { TASK_TYPE_OPTIONS } from '../util';
+import { TASK_STATUS_META, TASK_TYPE_OPTIONS } from '../util';
 
 const { Text } = Typography;
 
@@ -35,19 +35,31 @@ interface PendingImage {
   url: string;
 }
 
-/** 新建任务弹窗：布局与编辑弹窗一致，但图片先内存缓冲、创建后再上传；「取消」什么都不建。 */
+/**
+ * 新建任务弹窗：布局与编辑弹窗一致，但图片先内存缓冲、创建后再上传；「取消」什么都不建。
+ *
+ * 两种入口：项目页看板传 projectName（落到该项目）；侧边栏全局新建不传，弹窗内自己选项目。
+ */
 export default function TaskCreateModal({
   projectName,
+  projects,
+  targetStatus,
   open,
   onClose,
   onCreated,
 }: {
-  projectName: string;
+  /** 目标项目目录名；不传＝全局入口，弹窗内出现项目选择器 */
+  projectName?: string;
+  /** 全局入口的可选项目列表（项目页入口不需要） */
+  projects?: ProjectInfo[];
+  /** 落到哪一列；不传＝后端默认「已收集」。看板列头的「＋」传对应列。 */
+  targetStatus?: Exclude<TaskStatus, 'archived'>;
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const { message } = AntApp.useApp();
+  const [project, setProject] = useState<string | undefined>(projectName);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('p2');
@@ -67,9 +79,10 @@ export default function TaskCreateModal({
     });
   }, []);
 
-  // 每次打开重置为空白
+  // 每次打开重置为空白（项目预选回当前上下文；全局入口保持上次选择为空）
   useEffect(() => {
     if (!open) return;
+    setProject(projectName);
     setTitle('');
     setDescription('');
     setPriority('p2');
@@ -77,7 +90,7 @@ export default function TaskCreateModal({
     setAssignee('');
     setDue(null);
     resetPending();
-  }, [open, resetPending]);
+  }, [open, projectName, resetPending]);
 
   // 关闭（取消）：主动释放预览 URL，再交回父组件
   const handleCancel = () => {
@@ -114,6 +127,10 @@ export default function TaskCreateModal({
 
   const create = () => {
     if (saving) return; // 防重复提交（含标题框回车连按）
+    if (!project) {
+      message.warning('请选择目标项目');
+      return;
+    }
     const t = title.trim();
     if (!t) {
       message.warning('标题不能为空');
@@ -124,13 +141,14 @@ export default function TaskCreateModal({
       return;
     }
     setSaving(true);
-    createTask(projectName, {
+    createTask(project, {
       title: t,
       description: description.trim() || null,
       priority,
       taskType,
       dueDate: due,
       assignee: assignee.trim() || null,
+      status: targetStatus,
     })
       .then(async (created) => {
         // 拿到 id 后逐张上传缓冲图片；单张失败不阻断其余（任务已建成，只提示）
@@ -151,7 +169,7 @@ export default function TaskCreateModal({
 
   return (
     <Modal
-      title="新建任务"
+      title={targetStatus ? `新建任务 · ${TASK_STATUS_META[targetStatus].label}` : '新建任务'}
       open={open}
       onCancel={handleCancel}
       okText="创建"
@@ -160,6 +178,26 @@ export default function TaskCreateModal({
       onOk={create}
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12} onPaste={handlePaste}>
+        {/* 全局入口（无项目上下文）才出现：项目页开的弹窗已经知道落哪儿，不必多问一步 */}
+        {projectName === undefined && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              项目
+            </Text>
+            <Select
+              value={project}
+              onChange={setProject}
+              disabled={saving}
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择目标项目"
+              style={{ width: '100%' }}
+              options={(projects ?? [])
+                .filter((p) => !p.archived)
+                .map((p) => ({ value: p.name, label: p.displayName }))}
+            />
+          </div>
+        )}
         <div>
           <Text type="secondary" style={{ fontSize: 12 }}>
             标题

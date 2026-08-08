@@ -1,70 +1,52 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { Alert, App as AntApp, Button, Input, Spin, Tooltip } from 'antd';
 import {
-  Layout,
-  Descriptions,
-  Tag,
-  Typography,
-  Spin,
-  Empty,
-  List,
-  Space,
-  theme,
-  Alert,
-  Button,
-  Input,
-  Tooltip,
-  Tabs,
-  App as AntApp,
-} from 'antd';
-import {
-  ArrowLeftOutlined,
-  BranchesOutlined,
-  CheckCircleTwoTone,
-  ClockCircleTwoTone,
-  BorderOutlined,
   EditOutlined,
-  PushpinOutlined,
-  PushpinFilled,
-  InboxOutlined,
   ImportOutlined,
+  InboxOutlined,
+  PlusOutlined,
+  PushpinFilled,
+  PushpinOutlined,
 } from '@ant-design/icons';
-import type { ProjectDetail, TodoItem } from './types';
+import type { ProjectDetail, TaskStatus, TodoItem } from './types';
 import { fetchProjectDetail, patchProject, importTodos } from './api';
-import { relativeTime } from './util';
+import { activeManaged, relativeTime } from './util';
+import { useBoard } from './BoardContext';
 import TaskBoard from './components/TaskBoard';
+import TaskCreateModal from './components/TaskCreateModal';
 
-const { Header, Content } = Layout;
-const { Paragraph, Text, Title } = Typography;
+type Tab = 'tasks' | 'todomd' | 'meta';
+type BoardStatus = Exclude<TaskStatus, 'archived'>;
 
-function TodoIcon({ status }: { status: TodoItem['status'] }) {
-  if (status === 'done') return <CheckCircleTwoTone twoToneColor="#52c41a" />;
-  if (status === 'doing') return <ClockCircleTwoTone twoToneColor="#faad14" />;
-  return <BorderOutlined />;
-}
+const TODO_MARK: Record<TodoItem['status'], string> = { open: '○', doing: '◐', done: '●' };
 
 export default function ProjectPage() {
   const { name = '' } = useParams();
-  const navigate = useNavigate();
-  const { token } = theme.useToken();
   const { message } = AntApp.useApp();
+  const { reload: reloadProjects } = useBoard();
   const [data, setData] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>('tasks');
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
+  // null=关闭；undefined=开着但不指定列（工具条按钮）；具体状态=从该列的「＋」开的
+  const [createIn, setCreateIn] = useState<BoardStatus | null | undefined>(null);
 
   const reload = useCallback(() => {
     // 刷新失败不要清空已有数据（否则页面突变 Empty），提示即可
     fetchProjectDetail(name)
       .then(setData)
       .catch((e) => message.error(String(e.message ?? e)));
-  }, [name, message]);
+    reloadProjects(); // 侧边栏的活跃任务计数跟着动
+  }, [name, message, reloadProjects]);
 
   useEffect(() => {
     setLoading(true);
     setData(null);
     setEditing(false);
+    setTab('tasks');
     fetchProjectDetail(name)
       .then(setData)
       .catch(() => setData(null))
@@ -86,6 +68,11 @@ export default function ProjectPage() {
       .catch((e) => message.error(String(e.message ?? e)));
   };
 
+  const toggle = (patch: { pinned?: boolean; archived?: boolean }) =>
+    patchProject(name, patch)
+      .then(reload)
+      .catch((e) => message.error(String(e.message ?? e)));
+
   const doImport = () => {
     importTodos(name)
       .then((r) => {
@@ -95,234 +82,229 @@ export default function ProjectPage() {
       .catch((e) => message.error(String(e.message ?? e)));
   };
 
+  if (!data) {
+    return loading ? (
+      <div className="empty">
+        <Spin />
+      </div>
+    ) : (
+      <div className="empty">项目不存在或加载失败</div>
+    );
+  }
+
+  const active = activeManaged(data.managed);
   const grouped: Record<string, TodoItem[]> = {};
-  data?.todoItems.forEach((it) => {
+  data.todoItems.forEach((it) => {
     const key = it.section ?? '（无段落）';
     (grouped[key] ??= []).push(it);
   });
 
-  const meta = data && (
-    <>
-      {!data.missing && (
-        <Descriptions column={1} size="small" styles={{ label: { width: 96 } }}>
-          <Descriptions.Item label="路径">
-            <Text copyable style={{ fontSize: 12 }}>
-              {data.path}
-            </Text>
-          </Descriptions.Item>
-          {data.git.isRepo && (
-            <Descriptions.Item label="分支">
-              <Tag icon={<BranchesOutlined />} color={data.git.nested ? 'purple' : 'default'}>
-                {data.git.branch}
-              </Tag>
-              {data.git.dirtyCount > 0 && <Tag color="orange">{data.git.dirtyCount} 改动</Tag>}
-              {data.git.nested && <Text type="secondary">（git 在子目录）</Text>}
-            </Descriptions.Item>
-          )}
-          {data.git.remote && (
-            <Descriptions.Item label="remote">
-              <Text style={{ fontSize: 12 }}>{data.git.remote}</Text>
-            </Descriptions.Item>
-          )}
-          <Descriptions.Item label="最近活跃">
-            {relativeTime(data.lastActive)}
-            {data.git.lastCommit && <Text type="secondary"> · {data.git.lastCommit.slice(0, 10)}</Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="文档">
-            <Space>
-              {(['directory', 'schema', 'api'] as const).map((k) => (
-                <Tag key={k} color={data.docs[k] ? 'blue' : undefined} style={{ opacity: data.docs[k] ? 1 : 0.45 }}>
-                  {k.toUpperCase()}.md
-                </Tag>
-              ))}
-            </Space>
-          </Descriptions.Item>
-        </Descriptions>
-      )}
-      {data.techStack.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          {data.techStack.map((t) => (
-            <Tag key={t} style={{ marginBottom: 4 }}>
-              {t}
-            </Tag>
-          ))}
-        </div>
-      )}
-      {data.description && (
-        <Paragraph style={{ marginTop: 12, color: token.colorTextSecondary }}>{data.description}</Paragraph>
-      )}
-    </>
-  );
-
-  const todoTab = data && (
-    <>
-      <Space wrap style={{ marginBottom: 12 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          只读 · 来自 tasks/todo.md（{data.todos.open} 未完成 / {data.todos.total} 总）。文件原始清单，非看板受管任务。
-        </Text>
-        {data.todoItems.some((t) => t.status !== 'done') && (
-          <Button size="small" icon={<ImportOutlined />} onClick={doImport}>
-            导入未完成项为任务
-          </Button>
-        )}
-      </Space>
-      {data.todoItems.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无 tasks/todo.md" />
-      ) : (
-        Object.entries(grouped).map(([section, items]) => (
-          <div key={section} style={{ marginBottom: 16 }}>
-            <Title level={5} style={{ marginBottom: 8 }}>
-              {section}
-            </Title>
-            <List
-              size="small"
-              dataSource={items}
-              renderItem={(it) => (
-                <List.Item>
-                  <Space align="start">
-                    <TodoIcon status={it.status} />
-                    <Text delete={it.status === 'done'} type={it.status === 'done' ? 'secondary' : undefined}>
-                      {it.text}
-                    </Text>
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </div>
-        ))
-      )}
-    </>
-  );
+  const TABS: Array<{ key: Tab; label: string; badge?: number }> = [
+    { key: 'tasks', label: '任务', badge: active },
+    { key: 'todomd', label: 'todo.md', badge: data.todos.open },
+    { key: 'meta', label: '资料' },
+  ];
 
   return (
-    <Layout style={{ minHeight: '100vh', background: token.colorBgLayout }}>
-      <Header
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          background: token.colorBgContainer,
-          borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          paddingInline: 16,
-        }}
-      >
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
-          返回
-        </Button>
-        <Title level={4} style={{ margin: 0, flex: 1, minWidth: 0 }} ellipsis>
-          {data?.displayName ?? name}
-        </Title>
-        {data && (
-          <Space>
-            <Tooltip title={data.pinned ? '取消置顶' : '置顶'}>
-              <Button
-                icon={data.pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                onClick={() =>
-                  patchProject(name, { pinned: !data.pinned }).then(reload).catch((e) => message.error(String(e.message ?? e)))
-                }
-              />
-            </Tooltip>
-            <Tooltip title={data.archived ? '取消归档' : '归档'}>
-              <Button
-                icon={<InboxOutlined />}
-                type={data.archived ? 'primary' : 'default'}
-                onClick={() =>
-                  patchProject(name, { archived: !data.archived }).then(reload).catch((e) => message.error(String(e.message ?? e)))
-                }
-              />
-            </Tooltip>
-            <Tooltip title="编辑名称/简介">
-              <Button icon={<EditOutlined />} onClick={startEdit} />
-            </Tooltip>
-          </Space>
-        )}
-      </Header>
-
-      <Content style={{ padding: 24 }}>
-        {/* 全宽铺满（与首页看板一致）：六列看板需要横向空间，不再限宽居中 */}
-        <div>
-          <Spin spinning={loading}>
-            {!data && !loading ? (
-              <Empty description="项目不存在或加载失败" />
-            ) : data ? (
-              <>
-                {data.missing && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message="该项目目录已不在扫描范围（移动/删除）"
-                    description="下方受管任务仍保留，可在原目录恢复后自动重新关联。"
-                    style={{ marginBottom: 16 }}
-                  />
-                )}
-                {data.error && <Alert type="error" message={data.error} style={{ marginBottom: 16 }} />}
-                {editing && (
-                  <div
-                    style={{
-                      marginBottom: 16,
-                      padding: 12,
-                      background: token.colorFillQuaternary,
-                      borderRadius: token.borderRadius,
-                    }}
-                  >
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      placeholder="展示名（留空=用扫描值）"
-                      style={{ marginBottom: 8 }}
-                    />
-                    <Input.TextArea
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      placeholder="简介（留空=用扫描值）"
-                      rows={2}
-                      style={{ marginBottom: 8 }}
-                    />
-                    <Space>
-                      <Button type="primary" size="small" onClick={saveEdit}>
-                        保存
-                      </Button>
-                      <Button size="small" onClick={() => setEditing(false)}>
-                        取消
-                      </Button>
-                    </Space>
-                  </div>
-                )}
-
-                <Tabs
-                  defaultActiveKey="tasks"
-                  items={[
-                    {
-                      key: 'tasks',
-                      label: (() => {
-                        // 徽标＝活跃受管任务数（待开发+进行中+待验收），不含已收集/待规划/已完成
-                        const active = data.managed.todo + data.managed.doing + data.managed.review;
-                        return `任务${active > 0 ? ` ${active}` : ''}`;
-                      })(),
-                      children: (
-                        <TaskBoard
-                          projectName={name}
-                          tasks={data.tasks}
-                          onChange={reload}
-                        />
-                      ),
-                    },
-                    {
-                      key: 'todomd',
-                      label: `todo.md${data.todos.open > 0 ? ` ${data.todos.open}` : ''}`,
-                      children: todoTab,
-                    },
-                    { key: 'meta', label: '资料', children: meta },
-                  ]}
-                />
-              </>
-            ) : null}
-          </Spin>
+    <>
+      <div className="toolbar">
+        <div className="seg">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              className={tab === t.key ? 'is-active' : undefined}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+              {t.badge != null && t.badge > 0 ? ` ${t.badge}` : ''}
+            </button>
+          ))}
         </div>
-      </Content>
-    </Layout>
+
+        <span className="toolbar-spacer" />
+
+        <span className="toolbar-count">{data.tasks.length} 任务</span>
+        <Tooltip title={data.pinned ? '取消置顶' : '置顶'}>
+          <button
+            className={`btn btn-ghost btn-icon${data.pinned ? ' is-on' : ''}`}
+            style={data.pinned ? { color: 'var(--accent)' } : undefined}
+            onClick={() => toggle({ pinned: !data.pinned })}
+            aria-label="置顶"
+          >
+            {data.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+          </button>
+        </Tooltip>
+        <Tooltip title={data.archived ? '取消归档' : '归档'}>
+          <button
+            className="btn btn-ghost btn-icon"
+            style={data.archived ? { color: 'var(--warn)' } : undefined}
+            onClick={() => toggle({ archived: !data.archived })}
+            aria-label="归档"
+          >
+            <InboxOutlined />
+          </button>
+        </Tooltip>
+        <Tooltip title="编辑名称 / 简介">
+          <button className="btn btn-ghost btn-icon" onClick={startEdit} aria-label="编辑">
+            <EditOutlined />
+          </button>
+        </Tooltip>
+        <button className="btn btn-solid" onClick={() => setCreateIn(undefined)}>
+          <PlusOutlined />
+          新建任务
+        </button>
+      </div>
+
+      {(data.missing || data.error || editing) && (
+        <div className="section" style={{ paddingBottom: 0 }}>
+          {data.missing && (
+            <Alert
+              type="warning"
+              showIcon
+              message="该项目目录已不在扫描范围（移动/删除）"
+              description="下方受管任务仍保留，可在原目录恢复后自动重新关联。"
+              style={{ marginBottom: 12 }}
+            />
+          )}
+          {data.error && <Alert type="error" message={data.error} style={{ marginBottom: 12 }} />}
+          {editing && (
+            <div
+              style={{
+                padding: 12,
+                background: 'var(--bg-sunken)',
+                borderRadius: 'var(--radius)',
+              }}
+            >
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="展示名（留空=用扫描值）"
+                style={{ marginBottom: 8 }}
+              />
+              <Input.TextArea
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                placeholder="简介（留空=用扫描值）"
+                rows={2}
+                style={{ marginBottom: 8 }}
+              />
+              <Button type="primary" size="small" onClick={saveEdit} style={{ marginRight: 8 }}>
+                保存
+              </Button>
+              <Button size="small" onClick={() => setEditing(false)}>
+                取消
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'tasks' && <TaskBoard tasks={data.tasks} onChange={reload} onCreate={setCreateIn} />}
+
+      {tab === 'todomd' && (
+        <div className="section">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+            <span className="hint">
+              只读 · 来自 tasks/todo.md（{data.todos.open} 未完成 / {data.todos.total} 总）。文件原始清单，非看板受管任务。
+            </span>
+            {data.todoItems.some((t) => t.status !== 'done') && (
+              <button className="btn" onClick={doImport}>
+                <ImportOutlined />
+                导入未完成项为任务
+              </button>
+            )}
+          </div>
+          {data.todoItems.length === 0 ? (
+            <div className="empty">无 tasks/todo.md</div>
+          ) : (
+            Object.entries(grouped).map(([section, items]) => (
+              <div key={section} style={{ marginBottom: 18 }}>
+                <h3 className="section-title">{section}</h3>
+                {items.map((it, i) => (
+                  <div key={`${section}-${i}`} className="todo-row">
+                    <span className="todo-mark" data-status={it.status}>
+                      {TODO_MARK[it.status]}
+                    </span>
+                    <span className={it.status === 'done' ? 'todo-done' : undefined}>{it.text}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab === 'meta' && (
+        <div className="section">
+          <dl className="meta">
+            {!data.missing && (
+              <>
+                <dt>路径</dt>
+                <dd style={{ fontFamily: 'var(--mono)' }}>{data.path}</dd>
+              </>
+            )}
+            {data.git.isRepo && (
+              <>
+                <dt>分支</dt>
+                <dd>
+                  <span className="chip">{data.git.branch ?? 'detached'}</span>
+                  {data.git.dirtyCount > 0 && (
+                    <span className="chip chip-warn" style={{ marginLeft: 6 }}>
+                      {data.git.dirtyCount} 改动
+                    </span>
+                  )}
+                  {data.git.nested && <span className="hint"> git 在子目录</span>}
+                </dd>
+              </>
+            )}
+            {data.git.remote && (
+              <>
+                <dt>remote</dt>
+                <dd style={{ fontFamily: 'var(--mono)' }}>{data.git.remote}</dd>
+              </>
+            )}
+            <dt>最近活跃</dt>
+            <dd>
+              {relativeTime(data.lastActive)}
+              {data.git.lastCommit && <span className="hint"> · {data.git.lastCommit.slice(0, 10)}</span>}
+            </dd>
+            <dt>文档</dt>
+            <dd style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {(['directory', 'schema', 'api'] as const).map((k) => (
+                <span key={k} className="chip" style={{ opacity: data.docs[k] ? 1 : 0.4 }}>
+                  {k.toUpperCase()}.md
+                </span>
+              ))}
+            </dd>
+            {data.techStack.length > 0 && (
+              <>
+                <dt>技术栈</dt>
+                <dd style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {data.techStack.map((t) => (
+                    <span key={t} className="chip">
+                      {t}
+                    </span>
+                  ))}
+                </dd>
+              </>
+            )}
+            {data.description && (
+              <>
+                <dt>简介</dt>
+                <dd>{data.description}</dd>
+              </>
+            )}
+          </dl>
+        </div>
+      )}
+
+      <TaskCreateModal
+        projectName={name}
+        targetStatus={createIn ?? undefined}
+        open={createIn !== null}
+        onClose={() => setCreateIn(null)}
+        onCreated={reload}
+      />
+    </>
   );
 }

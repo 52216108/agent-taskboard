@@ -81,6 +81,8 @@ export interface NewTask {
   taskType?: TaskType;
   dueDate?: string | null;
   assignee?: string | null;
+  /** 落到哪一列；省略＝后端默认「已收集」。看板列头的「＋」用它直接建进该列。 */
+  status?: TaskStatus;
 }
 export const createTask = (name: string, body: NewTask): Promise<Task> =>
   post<Task>(`/api/projects/${encodeURIComponent(name)}/tasks`, body);

@@ -1,10 +1,13 @@
 import type { TaskStatus, TaskType } from './types';
 
-/** 任务类型展示元数据：标签文案 + antd Tag 颜色。三处任务视图共用，避免重复。 */
-export const TASK_TYPE_META: Record<TaskType, { label: string; color: string }> = {
-  feature: { label: '需求', color: 'blue' },
-  bug: { label: 'Bug', color: 'red' },
-  optimize: { label: '优化', color: 'gold' },
+/**
+ * 任务类型展示文案。三处任务视图共用，避免重复。
+ * 颜色不在这里——见 theme.ts 的 `--ty-<type>` CSS 变量（明暗两套，样式层统一取）。
+ */
+export const TASK_TYPE_META: Record<TaskType, { label: string }> = {
+  feature: { label: '需求' },
+  bug: { label: 'Bug' },
+  optimize: { label: '优化' },
 };
 
 /** 看板列顺序（不含归档），即状态流转顺序。看板/编辑弹窗共用一处事实源。 */
@@ -17,18 +20,30 @@ export const BOARD_STATUSES: Array<Exclude<TaskStatus, 'archived'>> = [
   'done',
 ];
 
-/** 任务状态展示元数据：列标题 / 标签文案 + antd Tag 颜色。看板、弹窗、全局列表共用。 */
-export const TASK_STATUS_META: Record<
-  Exclude<TaskStatus, 'archived'>,
-  { label: string; color: string }
-> = {
-  collected: { label: '已收集', color: 'default' },
-  backlog: { label: '待规划', color: 'cyan' },
-  todo: { label: '待开发', color: 'blue' },
-  doing: { label: '进行中', color: 'processing' },
-  review: { label: '待验收', color: 'gold' },
-  done: { label: '已完成', color: 'green' },
+/**
+ * 任务状态展示文案（列标题 / 标签）。看板、弹窗、全局列表共用。
+ * 颜色见 theme.ts 的 `--st-<status>-fg` / `-bg` CSS 变量，图标见 StatusIcon。
+ */
+export const TASK_STATUS_META: Record<Exclude<TaskStatus, 'archived'>, { label: string }> = {
+  collected: { label: '已收集' },
+  backlog: { label: '待规划' },
+  todo: { label: '待开发' },
+  doing: { label: '进行中' },
+  review: { label: '待验收' },
+  done: { label: '已完成' },
 };
+
+/**
+ * 活跃受管任务数＝待开发+进行中+待验收。
+ * 「已收集/待规划」是点子堆、「已完成」不算工作量——侧边栏徽标、项目卡片、排序共用这一处定义。
+ */
+export function activeManaged(m: {
+  todo: number;
+  doing: number;
+  review: number;
+}): number {
+  return m.todo + m.doing + m.review;
+}
 
 /** 新建表单/选择器的类型选项（顺序固定：需求 → Bug → 优化）。 */
 export const TASK_TYPE_OPTIONS: Array<{ value: TaskType; label: string }> = (

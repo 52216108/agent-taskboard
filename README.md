@@ -64,7 +64,10 @@ the Claude Code skill.
 - Merges nested git repos (wrapper directory + inner repo layouts)
 
 **Task board**
-- Six columns: collected → backlog → todo → doing → review → done
+- Workspace UI: a persistent left sidebar (search / project list / global tasks) with a breadcrumb header and per-page toolbar; light and dark themes
+- Six columns: collected → backlog → todo → doing → review → done — each column carries its own status
+  tint, and you can create a card straight from a column header (except *done*: only a human can accept a
+  task from *review* into it)
 - Priority / type (feature · bug · optimize) / assignee / due date / image attachments
 - Subtasks: a lightweight checklist per task (progress on the card, ticked off in the detail view, listed under `board here`)
 - Rejection flow: bouncing a task from review back to todo carries a reason, and that reason is fed
