@@ -419,6 +419,8 @@ button {
 
 /* ── 看板 ─────────────────────────────────────────────── */
 
+/* 不能给 .board 设 overflow：它一旦成为滚动容器，flex 自动最小高度就从「内容高」归 0，
+   整块被压到视口高，列背景到底、卡片裸奔在背景外。纵横溢出都交给外层 .page 滚。 */
 .board {
   flex: 1 1 auto;
   display: grid;
@@ -428,7 +430,6 @@ button {
   align-items: stretch;
   align-content: stretch;
   padding: 12px 16px 16px;
-  overflow: auto;
 }
 
 .col {
