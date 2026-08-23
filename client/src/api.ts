@@ -22,6 +22,13 @@ function tokenQuery(): string {
   return t ? `?token=${encodeURIComponent(t)}` : '';
 }
 
+export interface TaskReviewEvent {
+  id: string;
+  type: 'task.review';
+  occurredAt: string;
+  task: Pick<Task, 'id' | 'projectId' | 'title' | 'assignee' | 'updatedAt'>;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -64,6 +71,73 @@ export const fetchAllTasks = (includeArchived = false): Promise<{ tasks: GlobalT
   fetch(`/api/tasks${includeArchived ? '?includeArchived=1' : ''}`, { headers: authHeaders() }).then(
     (r) => json(r),
   );
+
+/** 订阅任务首次进入待验收状态的 SSE 事件；以流式 fetch 携带 header token，避免凭证进入 URL。 */
+export function subscribeTaskEvents(onReview: (event: TaskReviewEvent) => void): () => void {
+  let stopped = false;
+  let reconnectTimer: number | null = null;
+  let controller: AbortController | null = null;
+  let lastEventId = '';
+  let retryMs = 3_000;
+
+  const consumeBlock = (block: string) => {
+    let eventName = 'message';
+    let eventId: string | null = null;
+    const data: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (!line || line.startsWith(':')) continue;
+      const separator = line.indexOf(':');
+      const field = separator < 0 ? line : line.slice(0, separator);
+      const value = separator < 0 ? '' : line.slice(separator + 1).replace(/^ /, '');
+      if (field === 'event') eventName = value;
+      else if (field === 'data') data.push(value);
+      else if (field === 'id' && !value.includes('\0')) eventId = value;
+      else if (field === 'retry' && /^\d+$/.test(value)) retryMs = Number(value);
+    }
+    if (eventId !== null) lastEventId = eventId;
+    if (eventName !== 'task.review' || data.length === 0) return;
+    try {
+      onReview(JSON.parse(data.join('\n')) as TaskReviewEvent);
+    } catch {
+      // 单条畸形事件不应关闭连接；后续合法事件仍可继续接收。
+    }
+  };
+
+  const connect = async () => {
+    controller = new AbortController();
+    try {
+      const headers: Record<string, string> = { Accept: 'text/event-stream', ...authHeaders() };
+      if (lastEventId) headers['Last-Event-ID'] = lastEventId;
+      const response = await fetch('/api/events', { headers, signal: controller.signal });
+      if (!response.ok || !response.body) throw new Error(`SSE ${response.status}`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (!stopped) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = /\r?\n\r?\n/.exec(buffer);
+        while (boundary?.index !== undefined) {
+          consumeBlock(buffer.slice(0, boundary.index));
+          buffer = buffer.slice(boundary.index + boundary[0].length);
+          boundary = /\r?\n\r?\n/.exec(buffer);
+        }
+      }
+    } catch (error) {
+      if (stopped || (error instanceof DOMException && error.name === 'AbortError')) return;
+    } finally {
+      if (!stopped) reconnectTimer = window.setTimeout(() => void connect(), retryMs);
+    }
+  };
+
+  void connect();
+  return () => {
+    stopped = true;
+    controller?.abort();
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+  };
+}
 
 export interface ProjectPatch {
   displayName?: string | null;

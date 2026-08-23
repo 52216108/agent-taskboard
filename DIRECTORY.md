@@ -3,7 +3,7 @@
 > agent-taskboard（本地多项目看板）— 文件职责速查
 >
 > 单体应用：后端扫描+API（Fastify/tsx，无构建步骤）、前端看板（React18+AntD5+Vite）、终端 CLI。
-> 最后更新：2026-08-08
+> 最后更新：2026-08-23
 
 > 配套索引：数据库见 [SCHEMA.md](./SCHEMA.md)，接口见 [API.md](./API.md)。
 
@@ -26,7 +26,8 @@
 
 | 文件 | 职责 | 关键导出 |
 |------|------|---------|
-| `src/index.ts` | Fastify 入口：注册所有 API 路由、鉴权 hook、扫描缓存、静态托管。见 [API.md](./API.md) | `app`, `main()` |
+| `src/index.ts` | Fastify 入口：注册所有 API 路由（含任务事件 SSE）、鉴权 hook、扫描缓存、静态托管。见 [API.md](./API.md) | `app`, `main()` |
+| `src/task-events.ts` | 进程内任务事件总线：广播首次进入待验收状态的事件，独立维护任务历史额度与连接回放游标 | `TaskEventBroker`, `formatSseEvent`, `taskEvents` |
 | `src/config.ts` | 全局运行配置，环境变量覆盖（端口/根目录/DB路径/token/Host 白名单）；绑定安全校验（非 loopback 必须带 token，否则拒绝启动） | `CONFIG`, `isLoopbackHost`, `checkSecureBinding`, `buildAllowedHosts`, `hostnameOf` |
 | `src/scanner.ts` | 递归扫描根目录、识别"真项目"、聚合 git/todo/技术栈 → ProjectInfo/Detail | `scanProjects`, `buildDetail` |
 | `src/git.ts` | 异步读单个 git 仓库概要：分支/脏文件数/最近提交/remote；remote 归一化 | `getGitInfo`, `normalizeRemote` |
@@ -37,7 +38,7 @@
 | `src/repo.ts` | 任务/项目 CRUD、懒创建、路径迁移、enrich（合并 DB 状态到扫描结果）、todo.md 导入去重、任务附图增删 | `createTask`, `updateTask`, `listTasks`, `listAllTasks`, `enrich`, `importTodos`, `patchProject`, `addTaskImage`, `removeTaskImage`, `NewTask`, `TaskPatch` |
 | `src/task-images.ts` | 任务附图磁盘存取与文件名校验（路径单一事实源，CLI 共用）。落盘 `~/.project-board/task-images/<taskId>/` | `saveImage`, `deleteImage`, `taskImagePath`, `isValidName`, `extForMime`, `contentTypeForName` |
 | `src/types.ts` | 后端类型事实源：ProjectInfo/Task + 枚举（TaskStatus/TaskPriority/**TaskType**）+ **TaskImage** | `Task`, `TaskType`, `TaskImage`, `ProjectInfo` … |
-| `test/` | vitest 单测：`repo.test.ts`（任务/项目/类型）、`api.test.ts`（集成）、`config.test.ts`（绑定安全/Host 白名单）、`scanner.test.ts`、`task-images.test.ts`、`todo-parser.test.ts` | — |
+| `test/` | vitest 单测：`repo.test.ts`（任务/项目/类型）、`api.test.ts`（集成）、`task-events.test.ts`（通知广播/重连/SSE 帧）、`client-recent-events.test.ts`（浏览器通知去重）、`config.test.ts`、`scanner.test.ts`、`task-images.test.ts`、`todo-parser.test.ts` | — |
 
 ---
 
@@ -53,13 +54,15 @@
 | `src/App.tsx` | 根组件：明暗状态 + AntD ConfigProvider（令牌来自 `theme.ts`）+ 路由，页面统一包进 `AppShell` | `App`；路由 `/`（项目概览）`/tasks`（全局任务）`/p/:name`（项目页） |
 | `src/theme.ts` | **设计令牌单一事实源**：明暗两套调色板 + 状态/优先级/类型色，同时导出成 CSS 变量与 AntD token | `LIGHT`, `DARK`, `applyPalette`, `antdTokens`, `initialDark` |
 | `src/theme.css` | 手写样式层（外壳/看板/卡片/列表/按钮），颜色一律 `var(--xxx)`，末尾少量 AntD 收边 | — |
-| `src/BoardContext.tsx` | 跨页共享状态：项目列表 + 搜索词（侧边栏、概览页、全局任务页同源） | `BoardProvider`, `useBoard` |
+| `src/BoardContext.tsx` | 跨页共享状态：项目列表 + 搜索词 + SSE 订阅；任务交付时刷新数据并触发站内/系统通知 | `BoardProvider`, `useBoard` |
 | `src/ProjectsPage.tsx` | 项目概览页：卡片网格 + 排序 / 含归档过滤 | `ProjectsPage` |
 | `src/ProjectPage.tsx` | 单项目页：工具条（任务/todo.md/资料 切换 + 置顶/归档/编辑 + 新建任务）+ 看板 / 只读 todo 清单 / 资料表，并持有新建弹窗 | `ProjectPage` |
-| `src/api.ts` | 后端 API 客户端封装（fetch + token header），含 NewTask（**带 status，供列头「＋」直接建进该列**）/TaskPatch、任务图片上传/删除/取 URL | `createTask`, `updateTask`, `fetchAllTasks`, `uploadTaskImage`, `deleteTaskImage`, `taskImageUrl` … |
+| `src/api.ts` | 后端 API 客户端封装（fetch + token header），含带鉴权头及自动重连的流式 SSE、NewTask/TaskPatch、任务图片上传/删除/取 URL | `subscribeTaskEvents`, `createTask`, `updateTask`, `fetchAllTasks`, `uploadTaskImage` … |
+| `src/recent-events.ts` | 浏览器通知事件去重：每个事件独立加锁，保留最近 200 个处理标记，并兼容旧版单值格式 | `deliverRecentEventOnce` |
+| `src/indexeddb-lock.ts` | Web Locks 不可用时提供续租互斥，并在 localStorage 不可写时保存跨标签已处理状态 | `withIndexedDbLock`, `hasIndexedDbProcessedEvent`, `markIndexedDbProcessedEvent` |
 | `src/types.ts` | 前端类型，与后端对齐（含 `TaskType = feature\|bug\|optimize`、`TaskImage`） | `Task`, `TaskType`, `TaskImage`, `ProjectInfo` … |
 | `src/util.ts` | 工具：相对时间 / 活跃度等级 / 活跃受管任务数 / **任务类型与状态的展示文案**（看板/弹窗/全局列表共用，单一事实源；颜色在 `theme.ts`） | `relativeTime`, `activityLevel`, `activeManaged`, `TASK_TYPE_META`, `TASK_TYPE_OPTIONS`, `BOARD_STATUSES`, `TASK_STATUS_META` |
-| `src/components/AppShell.tsx` | 应用外壳：侧边栏（搜索 / 新建任务 / 概览·全局任务导航 / 项目列表 / 重扫·令牌·主题）+ 面包屑顶栏；全局新建与令牌弹窗归它持有 | `AppShell` |
+| `src/components/AppShell.tsx` | 应用外壳：侧边栏（搜索 / 新建任务 / 导航 / 项目 / 通知·重扫·令牌·主题）+ 面包屑顶栏；持有系统通知权限入口 | `AppShell` |
 | `src/components/StatusIcon.tsx` | 状态进度环（六状态画成 0→1 填充，已完成实心打勾）+ 优先级信号条（p0 感叹号方块），**形状即分级，不依赖颜色** | `StatusIcon`, `PriorityIcon` |
 | `src/components/ProjectCard.tsx` | 项目卡片：简介/技术栈/**任务状态分布条**/git/待办计数/活跃度 + 置顶按钮 | `ProjectCard`, `StatusBar` |
 | `src/components/TaskBoard.tsx` | 六列看板（列数/定义源自 util 的 `BOARD_STATUSES`）：**列带状态底色 + 列头图标·计数·「＋」**、拖拽流转、卡片**三段式（编号行/标题/描述摘要/页脚）**。「已完成」列不给「＋」——置 done 只能走人工验收 | `TaskBoard`, `TaskCard` |
@@ -121,6 +124,8 @@
                               SQLite(project/task) ──repo.enrich──▶ 合并覆盖+受管计数+信号
                                                                     │
 前端/CLI ◀── Fastify(index.ts) API ◀────────────────────────────────┘
+
+通知：任务首次进入 review ──task-events/SSE──▶ BoardContext ──▶ 数据刷新 + 站内/系统通知
 ```
 
 - **项目信息**：实时只读扫描（磁盘/git/README/todo.md），带内存缓存 + scan_cache 首屏秒开。

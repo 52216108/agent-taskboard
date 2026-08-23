@@ -192,6 +192,13 @@ button {
   align-items: center;
   gap: 4px;
 }
+.notify-toggle.is-on {
+  color: var(--st-review-fg);
+  background: var(--st-review-bg);
+}
+.notify-toggle.is-blocked {
+  color: var(--danger);
+}
 .sb-scan {
   flex: 1;
   min-width: 0;

@@ -3,7 +3,7 @@
 > agent-taskboard（本地多项目看板）— 接口速查表
 >
 > 后端：Node22 + Fastify + TypeScript（事实源 `server/src/index.ts`）。默认监听 `127.0.0.1:7788`。
-> 最后更新：2026-07-22
+> 最后更新：2026-08-23
 
 ---
 
@@ -12,7 +12,8 @@
 | 模块 | 接口前缀 | 接口数 | 说明 |
 |------|----------|--------|------|
 | 项目 | `/api/projects` | 4 | 项目列表/扫描/详情/覆盖 |
-| 受管任务 | `/api/projects/:name/tasks`、`/api/tasks` | 9 | 看板卡片 CRUD + 全局视图 + todo.md 导入 + 图片附件 |
+| 受管任务 | `/api/projects/:name/tasks`、`/api/tasks` | 11 | 看板卡片 CRUD + 全局视图 + todo.md 导入 + 图片附件 |
+| 实时事件 | `/api/events` | 1 | SSE 实时推送任务交付事件 |
 
 ---
 
@@ -37,7 +38,8 @@
 - **鉴权开关**：仅当设置了环境变量 `BOARD_TOKEN` 才生效（本机默认不设 → 不校验令牌）。
 - **拦截范围**：**所有** `/api/` 请求都需要令牌，读写皆然（含图片）。
 - **凭证方式**：写请求只认 `Authorization: Bearer <token>`（header-only，保 CSRF 防护）；
-  读请求（`GET`/`HEAD`）额外接受 `?token=` 查询参数——因为 `<img src>` 无法设自定义头。
+  读请求（`GET`/`HEAD`）额外接受 `?token=` 查询参数——供 `<img src>` 等无法设置请求头的资源使用。
+  实时事件客户端使用流式 `fetch` 携带 Bearer header，长期 token 不进入 SSE URL。
 
 下表「鉴权」列：`写` = 写操作，需 Bearer 头；`免` = 未设 `BOARD_TOKEN` 时无需令牌
 （设了则同样需要，读操作可用 `?token=`）。
@@ -89,6 +91,24 @@
 | status | `collected`\|`backlog`\|`todo`\|`doing`\|`review`\|`done`\|`archived` | 否 | 看板列；默认 `collected`(已收集)；非法 → 400 |
 
 **PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder` 与 `subtasks`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`status=done` 不可经 PATCH——只能由 accept 接口写（→400）。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review(PATCH) 或 accept 时清空。`subtasks`=子任务清单（客户端整组提交）：数组 ≤50，每项 `{id:整数, title:trim 后 1..200, done:布尔}`，不合法 → 400。
+
+---
+
+## 实时事件 — `/api/events`
+
+> Controller: `server/src/index.ts`；进程内事件总线：`server/src/task-events.ts`
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/events` | 免 | 建立 SSE 事件流；任务首次从非 `review` 状态进入 `review` 时推送 `task.review` |
+
+`task.review` 的 `data` 是 JSON 编码的 `TaskReviewEvent`：顶层包含事件 `id`、`type`、`occurredAt`，
+`task` 只包含 `id/projectId/title/assignee/updatedAt`，不推送任务描述和附件等正文。
+设置 `BOARD_TOKEN` 时，此端点只接受 Bearer header，明确拒绝 `?token=`，避免长期凭证进入 URL。
+客户端以带 Bearer header 的流式 `fetch` 连接；每次连接都会发送 `stream.ready` 游标，即使此前没有任务事件，
+断线重连也会携带 `Last-Event-ID`；连接每 20 秒发送注释心跳，
+浏览器重连时可补收当前服务进程保留的最近 50 条事件。旧游标因服务重启或历史淘汰而无法识别时，先回放当前进程仍保留的事件，
+再用新游标建立回放边界；服务重启前未持久化的历史不补发。服务优雅停止时会主动关闭所有 SSE 连接。
 
 ---
 

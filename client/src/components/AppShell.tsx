@@ -4,6 +4,8 @@ import { App as AntApp, Input, Modal, Tooltip, Typography } from 'antd';
 import {
   AppstoreFilled,
   AppstoreOutlined,
+  BellFilled,
+  BellOutlined,
   KeyOutlined,
   MenuOutlined,
   MoonOutlined,
@@ -101,7 +103,18 @@ export default function AppShell({
   onToggleTheme: () => void;
   children: React.ReactNode;
 }) {
-  const { projects, scannedAt, scanning, rescan, reload, search, setSearch } = useBoard();
+  const {
+    projects,
+    scannedAt,
+    scanning,
+    rescan,
+    reload,
+    reconnectEvents,
+    systemNotificationState,
+    toggleSystemNotifications,
+    search,
+    setSearch,
+  } = useBoard();
   const { message } = AntApp.useApp();
   const { pathname } = useLocation();
   const routeProject = useRouteProject();
@@ -115,8 +128,17 @@ export default function AppShell({
     if (v) localStorage.setItem('board-token', v);
     else localStorage.removeItem('board-token');
     setTokenOpen(false);
+    reconnectEvents();
+    reload();
     message.success(v ? '已保存访问令牌' : '已清除访问令牌');
   };
+
+  const notificationTitle = {
+    unsupported: '当前浏览器不支持系统通知',
+    off: '开启任务完成系统通知',
+    on: '系统通知已开启（点击关闭）',
+    blocked: '系统通知被浏览器阻止',
+  }[systemNotificationState];
 
   // 在全局任务页，搜索词是在搜任务标题，拿它过滤项目导航只会把侧边栏清空成「无匹配项目」，
   // 看起来像项目都没了。那一页就不过滤导航。
@@ -233,6 +255,16 @@ export default function AppShell({
         </div>
 
         <div className="sb-foot">
+          <Tooltip title={notificationTitle}>
+            <button
+              className={`btn btn-ghost btn-icon notify-toggle is-${systemNotificationState}`}
+              onClick={() => void toggleSystemNotifications()}
+              aria-label={notificationTitle}
+              aria-pressed={systemNotificationState === 'on'}
+            >
+              {systemNotificationState === 'on' ? <BellFilled /> : <BellOutlined />}
+            </button>
+          </Tooltip>
           <Tooltip title="重新扫描磁盘">
             <button
               className="btn btn-ghost btn-icon"

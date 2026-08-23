@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync, createReadStream } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
+import type { ServerResponse } from 'node:http';
 import { CONFIG, buildAllowedHosts, checkSecureBinding, hostnameOf } from './config';
 import { scanProjects, buildDetail } from './scanner';
 import { getDb } from './db';
@@ -16,6 +17,7 @@ import {
   listTasks,
   listAllTasks,
   createTask,
+  getTask,
   updateTask,
   rejectTask,
   updateRejectReason,
@@ -36,6 +38,7 @@ import {
   extForMime,
   contentTypeForName,
 } from './task-images';
+import { formatSseEvent, taskEvents, type TaskReviewEvent, type TaskStreamCursorEvent } from './task-events';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -123,6 +126,13 @@ export const app = Fastify({
   },
 });
 
+// fastify.close() 会等待所有请求结束；SSE 是长连接，必须在 preClose 主动结束，否则优雅停机会挂住。
+const openEventStreams = new Set<ServerResponse>();
+app.addHook('preClose', async () => {
+  for (const response of openEventStreams) response.end();
+  openEventStreams.clear();
+});
+
 // 任务附图：把图片 mime 收成原始 Buffer（不引 multipart）；只注册这几种，默认 JSON parser 不受影响。
 // bodyLimit 在此显式设置——否则哪天路由级 bodyLimit 被改掉，parse 阶段会静默回退到 Fastify 默认 1MB。
 const IMG_BODY_LIMIT = 10 * 1024 * 1024; // 10MB
@@ -175,8 +185,11 @@ app.addHook('preHandler', async (req, reply) => {
   // 常量时间比较：`===` 的短路行为会随首个不同字节的位置泄漏时长，理论上可被逐字节爆破
   const headerOk = tokenEquals(req.headers.authorization, `Bearer ${CONFIG.token}`);
   const isRead = req.method === 'GET' || req.method === 'HEAD';
+  const isEventStream = req.url.split('?')[0] === '/api/events';
   const queryOk =
-    isRead && tokenEquals((req.query as { token?: string } | undefined)?.token, CONFIG.token);
+    isRead &&
+    !isEventStream &&
+    tokenEquals((req.query as { token?: string } | undefined)?.token, CONFIG.token);
   if (!headerOk && !queryOk) {
     return reply.code(401).send({ error: 'unauthorized' });
   }
@@ -240,6 +253,47 @@ app.get<{ Querystring: { includeArchived?: string } }>('/api/tasks', async (req)
   return { tasks };
 });
 
+// 浏览器实时通知：客户端以流式 fetch 携带 Authorization，并通过 Last-Event-ID 补收短暂断线事件。
+app.get('/api/events', async (req, reply) => {
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  openEventStreams.add(reply.raw);
+  reply.raw.write('retry: 3000\n\n');
+
+  const rawLastEventId = req.headers['last-event-id'];
+  const lastEventId = Array.isArray(rawLastEventId) ? rawLastEventId[0] : rawLastEventId;
+  const writeReview = (event: TaskReviewEvent) => reply.raw.write(formatSseEvent(event));
+  // 旧游标因重启/淘汰而未知时，先回放本进程仍保留的事件，再写入新游标，避免游标挤掉满历史中的事件。
+  let unsubscribe: () => void;
+  let cursor: TaskStreamCursorEvent;
+  if (lastEventId) {
+    unsubscribe = taskEvents.subscribe(writeReview, lastEventId, true);
+    cursor = taskEvents.createCursor();
+  } else {
+    cursor = taskEvents.createCursor();
+    unsubscribe = taskEvents.subscribe(writeReview, cursor.id);
+  }
+  reply.raw.write(formatSseEvent(cursor));
+  const heartbeat = setInterval(() => reply.raw.write(': heartbeat\n\n'), 20_000);
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    openEventStreams.delete(reply.raw);
+  };
+  req.raw.once('close', close);
+  reply.raw.once('close', close);
+  reply.raw.once('error', close);
+});
+
 app.post<{ Params: { name: string }; Body: NewTask }>(
   '/api/projects/:name/tasks',
   async (req, reply) => {
@@ -261,7 +315,9 @@ app.post<{ Params: { name: string }; Body: NewTask }>(
       if (body.assignee.length < 1 || body.assignee.length > 32)
         return reply.code(400).send({ error: 'bad assignee (need 1-32 chars)' });
     }
-    return createTask(p.key, p.path, body);
+    const created = createTask(p.key, p.path, body);
+    taskEvents.publishCreatedReview(created);
+    return created;
   },
 );
 
@@ -294,8 +350,13 @@ app.patch<{ Params: { id: string }; Body: TaskPatch }>('/api/tasks/:id', async (
     if ('error' in r) return reply.code(400).send({ error: r.error });
     body.subtasks = r.subtasks; // 用 trim 归一后的数组落库
   }
+  // 只在首次进入 review 时推送：review 内普通编辑和重复置 review 都不能制造通知噪音。
+  const previous = body.status === 'review' ? getTask(id) : null;
   const updated = updateTask(id, body);
   if (!updated) return reply.code(404).send({ error: 'task not found' });
+  if (previous && previous.status !== 'review' && updated.status === 'review') {
+    taskEvents.publishReview(updated);
+  }
   return updated;
 });
 

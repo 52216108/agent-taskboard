@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { app } from '../src/index';
 import { useInMemoryDb } from '../src/db';
 import { CONFIG } from '../src/config';
 import { createTask, updateTask } from '../src/repo';
+import { taskEvents } from '../src/task-events';
 
 // 用 app.inject 打真实路由，不 listen——只覆盖"防线 + 鉴权门 + 请求校验"这些在 handler 早期
 // 就短路返回的分支（enrich 合并另有 repo.test.ts 单测）。
@@ -12,6 +13,10 @@ import { createTask, updateTask } from '../src/repo';
 beforeEach(() => {
   useInMemoryDb(); // 每例干净内存库（schema 已建），handler 走它
   CONFIG.token = null; // 默认不开鉴权
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('反 DNS rebinding / 反 CSRF（与 token 无关的运行期防线）', () => {
@@ -59,6 +64,28 @@ describe('反 DNS rebinding / 反 CSRF（与 token 无关的运行期防线）',
 });
 
 describe('请求校验（不依赖扫描的快速分支）', () => {
+  it('任务首次进入 review 时发布通知，review 内编辑不重复发布', async () => {
+    const task = createTask('k', '/p', { title: '待交付', status: 'doing' });
+    const publish = vi.spyOn(taskEvents, 'publishReview');
+
+    const delivered = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'review' },
+    });
+    expect(delivered.statusCode).toBe(200);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ id: task.id, status: 'review' }));
+
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'review', title: '待交付（补充说明）' },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
   it('PATCH /api/tasks/:id 非整数 id → 400', async () => {
     const res = await app.inject({ method: 'PATCH', url: '/api/tasks/abc', payload: { status: 'todo' } });
     expect(res.statusCode).toBe(400);
@@ -437,6 +464,16 @@ describe('鉴权门（设 BOARD_TOKEN 时）', () => {
 
   it('无 token 的读接口 → 401', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/tasks/999999/images/00000000-0000-4000-8000-000000000000.png' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('SSE 事件流未带 token → 401（不能泄漏任务交付信息）', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/events' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('SSE 事件流拒绝查询参数 token，避免长期凭证进入 URL', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/events?token=test-secret' });
     expect(res.statusCode).toBe(401);
   });
 

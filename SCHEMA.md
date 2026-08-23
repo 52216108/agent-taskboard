@@ -54,6 +54,9 @@ P1 无库；P2 起引入。**SQLite 无原生列注释，故本文件与 schema.
 
 **索引**：`idx_task_project(project_id)`；`idx_task_fingerprint(project_id, todo_fingerprint) WHERE todo_fingerprint IS NOT NULL`（唯一，支撑 INSERT OR IGNORE 去重）。
 
+**非持久化事件边界**：任务首次从非 `review` 状态进入 `review` 时，服务进程会发布 SSE 通知事件；
+通知、订阅和已读状态均不落库，因此本 Schema 不增加对应字段，服务重启后也不追溯补发历史通知。
+
 ## scan_cache — 扫描快照
 
 单行（id 固定 1）。`payload` 存原始扫描结果 JSON（ProjectInfo[]，**未含** DB 覆盖/任务计数——这些在每次请求时 enrich）。启动时回灌内存缓存令首屏秒开。
