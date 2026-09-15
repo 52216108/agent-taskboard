@@ -30,6 +30,7 @@ import {
   type TaskPatch,
 } from '../api';
 import { BOARD_STATUSES, TASK_STATUS_META, TASK_TYPE_OPTIONS } from '../util';
+import { useBoard } from '../BoardContext';
 
 const { Text } = Typography;
 
@@ -58,8 +59,10 @@ export default function TaskEditModal({
   onSaved: () => void;
 }) {
   const { message } = AntApp.useApp();
+  const { projects } = useBoard();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority>('p2');
   const [taskType, setTaskType] = useState<TaskType>('feature');
   const [status, setStatus] = useState<TaskStatus>('collected'); // 与新建默认对齐；实际渲染时被 useEffect 覆盖为真实状态
@@ -87,6 +90,7 @@ export default function TaskEditModal({
     setAssignee(task.assignee ?? '');
     setImages(task.images ?? []);
     setSubtasks(task.subtasks ?? []);
+    setTags(task.tags ?? []);
     setNewSubtask('');
     setRejectOpen(false);
     setRejectReason('');
@@ -97,6 +101,17 @@ export default function TaskEditModal({
 
   if (!task) return null;
 
+  // 涉及仓标签只对挂在工作区上的任务有意义：候选 = 该工作区的子仓（值=子仓目录名，与 CLI --repo 一致）。
+  // 任务已带标签但项目不是工作区（比如被 move 到了子仓）时仍显示，好把残留标签清掉。
+  const owner = projects.find((p) => p.dbId === task.projectId);
+  const repoOptions =
+    owner?.kind === 'workspace'
+      ? projects
+          .filter((p) => p.parent === owner.name)
+          .map((p) => ({ value: p.name.split('/').pop() ?? p.name, label: p.displayName }))
+      : [];
+  const showTags = repoOptions.length > 0 || tags.length > 0;
+
   const save = () => {
     if (!title.trim()) {
       message.warning('标题不能为空');
@@ -104,6 +119,12 @@ export default function TaskEditModal({
     }
     if (assignee.trim().length > 32) {
       message.warning('认领人不能超过 32 字符');
+      return;
+    }
+    // 涉及仓是自由输入（mode=tags），本地先按服务端口径校验，免得一次保存连标题描述一起被 400 打回
+    const cleanTags = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
+    if (cleanTags.length > 20 || cleanTags.some((t) => t.length > 40)) {
+      message.warning('涉及仓最多 20 个，每个不超过 40 字符');
       return;
     }
     setSaving(true);
@@ -124,6 +145,7 @@ export default function TaskEditModal({
       assignee: assignee.trim() || null,
       // trim + 丢弃空标题子任务（后端要求 title 1..200），避免误留空行触发 400
       subtasks: finalSubs.map((s) => ({ ...s, title: s.title.trim() })).filter((s) => s.title.length > 0),
+      tags: cleanTags,
     };
     if (statusChanged && status !== 'done') patch.status = status;
     updateTask(task.id, patch)
@@ -363,6 +385,26 @@ export default function TaskEditModal({
             placeholder="可写清楚验收标准、相关文件、注意事项…"
           />
         </div>
+        {showTags && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              涉及仓（跨仓任务碰到的子仓；子仓目录里的 agent 只看涉及本仓的跨仓任务）
+            </Text>
+            <Select
+              mode="tags"
+              value={tags}
+              onChange={setTags}
+              allowClear
+              placeholder="不选＝未标仓，所有子仓都能看到"
+              style={{ width: '100%' }}
+              options={[
+                ...repoOptions,
+                // 已有但不在候选里的标签（仓改名/任务挪过项目）也列出来，可删可留
+                ...tags.filter((t) => !repoOptions.some((o) => o.value === t)).map((t) => ({ value: t, label: t })),
+              ]}
+            />
+          </div>
+        )}
         <div>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
             子任务{subtasks.length > 0 ? ` · ${doneCount}/${subtasks.length}` : ''}

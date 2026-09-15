@@ -44,6 +44,21 @@ interface TaskRow {
   accepted_by: string | null;
 }
 
+/**
+ * tags 列读路径归一：只认"字符串数组"，其余一律当作没标。
+ * 该列早期 API 不校验、任意 JSON 都能写进来（`"urgent"`、`{"a":1}`、甚至非法 JSON）；
+ * 现在它成了子仓视图过滤与前端渲染的依据（`.includes` / `.map`），脏值会直接 500 或整页崩。
+ */
+function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function rowToTask(r: TaskRow): Task {
   return {
     id: r.id,
@@ -56,7 +71,7 @@ function rowToTask(r: TaskRow): Task {
     dueDate: r.due_date,
     assignee: r.assignee,
     rejectReason: r.reject_reason,
-    tags: r.tags ? (JSON.parse(r.tags) as string[]) : [],
+    tags: parseTags(r.tags),
     images: r.images ? (JSON.parse(r.images) as TaskImage[]) : [],
     subtasks: r.subtasks ? (JSON.parse(r.subtasks) as SubTask[]) : [],
     source: r.source,

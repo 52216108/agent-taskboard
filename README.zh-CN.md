@@ -178,16 +178,18 @@ board <项目>                查看某项目的任务（--json 输出结构化�
 board here                  看「当前目录所属项目」的任务
 board here add <标题>       给当前项目登记任务（--bug / --optimize 指定类型）
 board here add <标题> --repo <子仓>   在工作区里把任务登记到指定子仓
+board here add <标题> --repo a --repo b   前后端都要改：落工作区，并标注涉及的子仓
 board here doing <id> --as <名字>   领活并署名
 board here review <id>      干完交回验收
 board [here] reject <id> "原因"     验收打回，原因回灌给 agent
 board move <id> <项目>      把任务改挂到另一个项目（如从工作区下放到 acme/acme-app）
+board tags <id> [子仓...]   设置工作区任务涉及哪些子仓（不带参数=清空）
 board merge <#id> <项目>    把旧项目行（remote 迁移等留下的）并入现役项目，合并前自动备份
 board backup                备份数据库
 ```
 
 在工作区目录里 `board here` 先列工作区自己的跨仓任务、再逐个子仓列；在子仓里则列本仓任务、
-再附上工作区的跨仓任务——不管 agent 从哪一层进来，都能看到它可能要碰的活。
+再附上工作区里涉及本仓的跨仓任务（没标仓的算涉及所有仓）——不管 agent 从哪一层进来，都能看到它可能要碰的活。
 
 ## 接入你的 coding agent
 

@@ -54,7 +54,7 @@
 |------|------|------|------|
 | GET | `/api/projects` | 免 | 列出所有项目（扫描结果 + DB 覆盖/受管计数 enrich）。多仓外壳产出一个 `kind=workspace` 的工作区 + 每个 git 子仓一个 `kind=repo` 子项目（`name` 为 `外壳/子仓`、`parent` 为外壳 name，紧跟在工作区之后）；仅存在于 DB 的旧行以 `name=#<dbId>` 追加（`missing=true`；目录仍在但身份键对不上的再标 `stale=true`） |
 | POST | `/api/projects/scan` | 写 | 强制重新扫描磁盘（绕过缓存）后返回列表。扫描后会把同一外壳路径上的历史项目行自动归并成一行（键改为外壳 realpath，合并前备份到 `<db 目录>/backups/pre-merge-*.db`） |
-| GET | `/api/projects/:name` | 免 | 项目详情（含 todo 条目、README 摘要、受管任务列表）。工作区额外带 `children[]`（各子仓的 name/displayName/path/tasks），子仓额外带 `workspace`（所属工作区及其跨仓任务）。`:name` 含斜杠时按 `%2F` 转义 |
+| GET | `/api/projects/:name` | 免 | 项目详情（含 todo 条目、README 摘要、受管任务列表）。工作区额外带 `children[]`（各子仓的 name/displayName/path/tasks），子仓额外带 `workspace`（所属工作区及其跨仓任务，**只含 `tags` 为空或含本仓目录名的**——明确标了别的仓的跨仓任务不出现在本仓视图）。`:name` 含斜杠时按 `%2F` 转义 |
 | PATCH | `/api/projects/:name` | 写 | 覆盖项目：`displayName`/`description`/`pinned`/`archived`（懒创建 DB 行） |
 | POST | `/api/projects/merge` | 写 | 合并项目行：body `{from, into}`（均为项目 name，旧行用 `#<dbId>`）。`from` 的任务整体改挂到 `into`（`into` 无 DB 行则懒创建），覆盖字段按"目标为空则继承、置顶取并集、全归档才归档"合并，随后删除 `from` 行；合并前自动备份。返回 `{project, backup}`。`from` 无看板数据 → 400，自己并自己 → 400，任一不存在 → 404 |
 
@@ -89,10 +89,10 @@
 | taskType | `feature`\|`bug`\|`optimize` | 否 | 任务类型：需求/缺陷/优化；默认 `feature`；非法 → 400 |
 | dueDate | string \| null | 否 | `YYYY-MM-DD`；格式错 → 400 |
 | assignee | string \| null | 否 | 认领人/执行者；字符串 trim 后须为 1..32 字符，`null` 表示未认领 |
-| tags | string[] | 否 | 标签 |
+| tags | string[] | 否 | 标签。当前用途：挂在工作区上的跨仓任务标注「涉及哪些子仓」（值=子仓目录名，与 CLI `--repo` 一致）。数组 ≤20 项，每项 trim 后 1..40 字符、无控制字符，去重保序；非法 → 400 |
 | status | `collected`\|`backlog`\|`todo`\|`doing`\|`review`\|`done`\|`archived` | 否 | 看板列；默认 `collected`(已收集)；非法 → 400 |
 
-**PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder` 与 `subtasks`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`status=done` 不可经 PATCH——只能由 accept 接口写（→400）。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review(PATCH) 或 accept 时清空。`subtasks`=子任务清单（客户端整组提交）：数组 ≤50，每项 `{id:整数, title:trim 后 1..200, done:布尔}`，不合法 → 400。
+**PATCH 改任务 body（TaskPatch）：** 上述字段均可选，外加 `sortOrder` 与 `subtasks`；同样校验 `priority`/`taskType`/`status`/`dueDate`/`assignee`，其中 `assignee: null` 清空认领人。`status=done` 不可经 PATCH——只能由 accept 接口写（→400）。`rejectReason` 不可经 PATCH 写入——只能由打回接口写、由置 review(PATCH) 或 accept 时清空。`subtasks`=子任务清单（客户端整组提交）：数组 ≤50，每项 `{id:整数, title:trim 后 1..200, done:布尔}`，不合法 → 400。`tags` 整组提交，校验同新建（空数组=清空）。
 
 ---
 

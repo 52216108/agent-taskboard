@@ -148,6 +148,11 @@ export default function GlobalTaskView() {
                 </span>
                 {archived && <span className="chip">已归档</span>}
                 {t.rejectReason && <span className="chip chip-warn">已打回</span>}
+                {(t.tags ?? []).map((tag) => (
+                  <span key={tag} className="chip chip-tag" title={`涉及仓：${tag}`}>
+                    {tag}
+                  </span>
+                ))}
 
                 <span className="trow-title">{t.title}</span>
 

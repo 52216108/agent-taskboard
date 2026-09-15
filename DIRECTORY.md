@@ -66,8 +66,8 @@
 | `src/components/StatusIcon.tsx` | 状态进度环（六状态画成 0→1 填充，已完成实心打勾）+ 优先级信号条（p0 感叹号方块），**形状即分级，不依赖颜色** | `StatusIcon`, `PriorityIcon` |
 | `src/components/ProjectCard.tsx` | 项目卡片：简介/技术栈/**任务状态分布条**/git/待办计数/活跃度 + 置顶按钮；工作区卡显示子仓芯片（可点进）、分布与活跃数含各子仓；旧行标「旧身份行/目录已消失」 | `ProjectCard`, `StatusBar` |
 | `src/components/TaskBoard.tsx` | 六列看板（列数/定义源自 util 的 `BOARD_STATUSES`）：**列带状态底色 + 列头图标·计数·「＋」**、拖拽流转、卡片**三段式（编号行/标题/描述摘要/页脚）**，卡片可带所属仓标签（工作区合并视图用）。「已完成」列不给「＋」——置 done 只能走人工验收 | `TaskBoard`, `TaskCard`, `BoardTask` |
-| `src/components/TaskCreateModal.tsx` | 新建任务弹窗（标题/描述/类型/优先级/认领人/截止/**图片内存缓冲、创建后上传**）；**无项目上下文时弹窗内选项目**，`targetStatus` 决定落哪列（默认已收集）；「取消」不落库 | `TaskCreateModal` |
-| `src/components/TaskEditModal.tsx` | 任务编辑弹窗（标题/描述/**类型**/优先级/状态/认领人/截止/归档/打回/**图片粘贴上传**/**子任务清单**），看板与全局视图共用 | `TaskEditModal` |
+| `src/components/TaskCreateModal.tsx` | 新建任务弹窗（标题/描述/类型/优先级/认领人/截止/**图片内存缓冲、创建后上传**）；**无项目上下文时弹窗内选项目**，`targetStatus` 决定落哪列（默认已收集）；工作区页落到工作区时可多选「涉及仓」；「取消」不落库 | `TaskCreateModal` |
+| `src/components/TaskEditModal.tsx` | 任务编辑弹窗（标题/描述/**类型**/优先级/状态/认领人/截止/归档/打回/**图片粘贴上传**/**子任务清单**/工作区任务的「涉及仓」多选），看板与全局视图共用 | `TaskEditModal` |
 | `src/components/GlobalTaskView.tsx` | 跨项目全局任务列表（`/tasks`）+ 筛选（未完成/高优/今天/逾期/全部）+ 状态环/优先级/类型标记 | `GlobalTaskView` |
 
 ---
@@ -77,7 +77,7 @@
 | 文件 | 职责 |
 |------|------|
 | `bin/board` | Bash 包装器：解析软链定位项目根，传 `BOARD_CWD`（用户原始 cwd），用 server 的 tsx 跑 `cli/task.ts` |
-| `cli/task.ts` | CLI 主体：调 HTTP API 列项目/任务（工作区下缩进子仓、旧行单列）、`add`（支持 `--bug`/`--optimize`/`--type`）、`here`（按 cwd 认项目，路径最长匹配：子仓里命中子仓、外壳里命中工作区；外壳里看到工作区+各子仓任务、子仓里附带工作区的跨仓任务；`here add --repo <子仓>` 登记到指定子仓）、`move`（任务改挂项目）、`merge`（旧行并入现役项目）、`backup`、状态流转 |
+| `cli/task.ts` | CLI 主体：调 HTTP API 列项目/任务（工作区下缩进子仓、旧行单列）、`add`（支持 `--bug`/`--optimize`/`--type`）、`here`（按 cwd 认项目，路径最长匹配：子仓里命中子仓、外壳里命中工作区；外壳里看到工作区+各子仓任务、子仓里附带工作区的跨仓任务；`here add --repo <子仓>` 登记到指定子仓，多个 `--repo` = 跨仓任务落工作区并标涉及仓）、`move`（任务改挂项目）、`tags`（设涉及仓标签）、`merge`（旧行并入现役项目）、`backup`、状态流转 |
 
 ---
 

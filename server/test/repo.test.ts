@@ -317,6 +317,23 @@ describe('reconcileWorkspaces：外壳旧行归并', () => {
   });
 });
 
+describe('tags 读路径归一', () => {
+  it('早期无校验写入的脏值（字符串/对象/非法 JSON/混合数组）读出来不炸，只保留字符串项', () => {
+    const t = createTask('k', '/p', { title: 'x' });
+    const upd = useDb().prepare('UPDATE task SET tags = ? WHERE id = ?');
+    for (const [raw, expected] of [
+      ['"urgent"', []],
+      ['{"a":1}', []],
+      ['not json', []],
+      ['["app", 3, null, "server"]', ['app', 'server']],
+      [null, []],
+    ] as Array<[string | null, string[]]>) {
+      upd.run(raw, t.id);
+      expect(listTasks('k')[0].tags, String(raw)).toEqual(expected);
+    }
+  });
+});
+
 describe('mergeProjects / moveTask', () => {
   it('merge：任务整体迁到目标行，来源行删除，覆盖字段按规则合并', async () => {
     createTask('gitee.com/x/app', '/p/app', { title: '老任务' });
