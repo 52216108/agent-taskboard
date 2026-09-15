@@ -10,6 +10,8 @@ import TaskEditModal from './TaskEditModal';
 type BoardStatus = Exclude<TaskStatus, 'archived'>;
 /** 可作为新建目标的列：已完成不在其中——置 done 只能由人从「待验收」走 accept 端点 */
 type CreatableStatus = Exclude<BoardStatus, 'done'>;
+/** 看板卡片数据：工作区页把各子仓的任务合在一块看时，带上所属仓的标签 */
+export type BoardTask = Task & { projectLabel?: string };
 
 // 单列超过此数默认收起，避免成熟项目的「已完成」列堆几百张卡片把其余列压成一条缝。
 const COLLAPSE_LIMIT = 15;
@@ -20,7 +22,7 @@ function TaskCard({
   onChange,
   onEdit,
 }: {
-  task: Task;
+  task: BoardTask;
   onChange: () => void;
   onEdit: (t: Task) => void;
 }) {
@@ -65,6 +67,7 @@ function TaskCard({
           {TASK_TYPE_META[task.taskType].label}
         </span>
         {task.rejectReason && <span className="chip chip-warn">已打回</span>}
+        {task.projectLabel && <span className="chip chip-repo">{task.projectLabel}</span>}
         {/* ⋮ 阻止冒泡，避免触发卡片点击与拖拽 */}
         <span onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex' }}>
           <Dropdown
@@ -130,7 +133,7 @@ export default function TaskBoard({
   onChange,
   onCreate,
 }: {
-  tasks: Task[];
+  tasks: BoardTask[];
   onChange: () => void;
   /** 列头「＋」回调：由页面弹新建弹窗（弹窗归页面所有，工具条上的「新建任务」共用同一个） */
   onCreate: (status: CreatableStatus) => void;

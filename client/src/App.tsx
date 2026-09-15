@@ -40,7 +40,8 @@ export default function App() {
             <Routes>
               <Route path="/" element={<ProjectsPage />} />
               <Route path="/tasks" element={<GlobalTaskView />} />
-              <Route path="/p/:name" element={<ProjectPage />} />
+              {/* 通配而非 :name：子仓项目名带斜杠（外壳/子仓） */}
+              <Route path="/p/*" element={<ProjectPage />} />
             </Routes>
           </AppShell>
         </BoardProvider>

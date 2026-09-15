@@ -11,8 +11,8 @@
 
 | 模块 | 接口前缀 | 接口数 | 说明 |
 |------|----------|--------|------|
-| 项目 | `/api/projects` | 4 | 项目列表/扫描/详情/覆盖 |
-| 受管任务 | `/api/projects/:name/tasks`、`/api/tasks` | 11 | 看板卡片 CRUD + 全局视图 + todo.md 导入 + 图片附件 |
+| 项目 | `/api/projects` | 5 | 项目列表/扫描/详情/覆盖/合并旧行 |
+| 受管任务 | `/api/projects/:name/tasks`、`/api/tasks` | 12 | 看板卡片 CRUD + 全局视图 + 改挂项目 + todo.md 导入 + 图片附件 |
 | 实时事件 | `/api/events` | 1 | SSE 实时推送任务交付事件 |
 
 ---
@@ -52,10 +52,11 @@
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/api/projects` | 免 | 列出所有项目（扫描结果 + DB 覆盖/受管计数 enrich） |
-| POST | `/api/projects/scan` | 写 | 强制重新扫描磁盘（绕过缓存）后返回列表 |
-| GET | `/api/projects/:name` | 免 | 项目详情（含 todo 条目、README 摘要、受管任务列表） |
+| GET | `/api/projects` | 免 | 列出所有项目（扫描结果 + DB 覆盖/受管计数 enrich）。多仓外壳产出一个 `kind=workspace` 的工作区 + 每个 git 子仓一个 `kind=repo` 子项目（`name` 为 `外壳/子仓`、`parent` 为外壳 name，紧跟在工作区之后）；仅存在于 DB 的旧行以 `name=#<dbId>` 追加（`missing=true`；目录仍在但身份键对不上的再标 `stale=true`） |
+| POST | `/api/projects/scan` | 写 | 强制重新扫描磁盘（绕过缓存）后返回列表。扫描后会把同一外壳路径上的历史项目行自动归并成一行（键改为外壳 realpath，合并前备份到 `<db 目录>/backups/pre-merge-*.db`） |
+| GET | `/api/projects/:name` | 免 | 项目详情（含 todo 条目、README 摘要、受管任务列表）。工作区额外带 `children[]`（各子仓的 name/displayName/path/tasks），子仓额外带 `workspace`（所属工作区及其跨仓任务）。`:name` 含斜杠时按 `%2F` 转义 |
 | PATCH | `/api/projects/:name` | 写 | 覆盖项目：`displayName`/`description`/`pinned`/`archived`（懒创建 DB 行） |
+| POST | `/api/projects/merge` | 写 | 合并项目行：body `{from, into}`（均为项目 name，旧行用 `#<dbId>`）。`from` 的任务整体改挂到 `into`（`into` 无 DB 行则懒创建），覆盖字段按"目标为空则继承、置顶取并集、全归档才归档"合并，随后删除 `from` 行；合并前自动备份。返回 `{project, backup}`。`from` 无看板数据 → 400，自己并自己 → 400，任一不存在 → 404 |
 
 ---
 
@@ -66,8 +67,9 @@
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/projects/:name/tasks` | 免 | 某项目的受管任务；`?includeArchived=1` 含归档 |
-| GET | `/api/tasks` | 免 | 跨项目全局任务（附 projectName/key/path/dir），工作台视图用；`?includeArchived=1` |
-| POST | `/api/projects/:name/tasks` | 写 | 新建受管任务（`source=manual`） |
+| GET | `/api/tasks` | 免 | 跨项目全局任务（附 projectName/key/path/dir/parent，parent=所属工作区 name、子仓任务才有），工作台视图用；`?includeArchived=1` |
+| POST | `/api/projects/:name/tasks` | 写 | 新建受管任务（`source=manual`）；`:name` 可为子仓（`外壳/子仓`，按 `%2F` 转义） |
+| POST | `/api/tasks/:id/move` | 写 | 把任务改挂到另一个项目（如从工作区下放到具体子仓）：body `{project}`=目标项目 name；项目/任务不存在 → 404 |
 | PATCH | `/api/tasks/:id` | 写 | 改任务字段 / 状态流转；**拒绝 `status=done`（→400，指向 accept 端点）**；置 review 自动清空 reject_reason；离开 done 清空 completed_at/accepted_at/accepted_by |
 | POST | `/api/tasks/:id/reject` | 写 | 验收打回：仅 review 态可打回 → todo 并记录原因；body `{reason}`（trim 后 1..500 字符），非 review → 400 |
 | POST | `/api/tasks/:id/reject-reason` | 写 | 二次编辑打回内容：对**已携带打回原因**的任务修订原因，**不改状态**；body `{reason}`（trim 后 1..500 字符）；无打回在身 → 400，任务不存在 → 404。与 reject 同为写 `reject_reason` 的专用入口（PATCH 仍不可写） |

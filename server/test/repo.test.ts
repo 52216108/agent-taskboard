@@ -4,6 +4,9 @@ import {
   ensureProject,
   patchProject,
   reconcilePaths,
+  reconcileWorkspaces,
+  mergeProjects,
+  moveTask,
   enrich,
   createTask,
   updateTask,
@@ -20,10 +23,12 @@ function fakeProject(key: string, path: string, name = path.split('/').pop()!): 
     key,
     path,
     name,
+    kind: 'repo',
+    parent: null,
     displayName: name,
     description: null,
     techStack: [],
-    git: { isRepo: true, branch: 'main', dirtyCount: 0, lastCommit: null, remote: key, nested: false },
+    git: { isRepo: true, branch: 'main', dirtyCount: 0, lastCommit: null, remote: key },
     todos: { open: 0, doing: 0, done: 0, total: 0 },
     hasTasksFile: false,
     docs: { directory: false, schema: false, api: false },
@@ -33,14 +38,28 @@ function fakeProject(key: string, path: string, name = path.split('/').pop()!): 
     pinned: false,
     archived: false,
     missing: false,
+    stale: false,
     managed: { collected: 0, backlog: 0, todo: 0, doing: 0, review: 0, done: 0 },
     topPriority: null,
     overdue: 0,
   };
 }
 
+/** 工作区（多仓外壳）：身份键 = 路径。 */
+function fakeWorkspace(path: string, name = path.split('/').pop()!): ProjectInfo {
+  return { ...fakeProject(path, path, name), kind: 'workspace' };
+}
+
+/** 工作区子仓：name=外壳/子仓，parent=外壳 name。 */
+function fakeChild(key: string, path: string, parent: string): ProjectInfo {
+  return { ...fakeProject(key, path, `${parent}/${path.split('/').pop()!}`), parent };
+}
+
+let useDb: () => ReturnType<typeof useInMemoryDb>;
+
 beforeEach(() => {
-  useInMemoryDb();
+  const db = useInMemoryDb();
+  useDb = () => db;
 });
 
 describe('项目身份与懒创建', () => {
@@ -207,6 +226,125 @@ describe('enrich 合并 DB 状态', () => {
     expect(result[0].missing).toBe(false);
     expect(result[0].dbId).not.toBeNull();
     expect(result[0].managed.collected).toBe(1); // 旧行的任务被认领
+  });
+
+  it('同一路径下未被认领的旧行 → 以 stale 追加（name=#id），不再隐身', () => {
+    // remote 从 gitee 迁到自建 git 后写过任务：同路径两行，现役键是新的
+    createTask('gitee.com/x/app', '/p/app', { title: '老任务', status: 'todo' });
+    createTask('git.example.com/x/app', '/p/app', { title: '新任务' });
+    const result = enrich([fakeProject('git.example.com/x/app', '/p/app')]);
+    expect(result).toHaveLength(2);
+    const live = result[0];
+    expect(live.missing).toBe(false);
+    expect(live.managed.collected).toBe(1);
+    const old = result[1];
+    expect(old.stale).toBe(true);
+    expect(old.missing).toBe(true);
+    expect(old.name).toBe(`#${old.dbId}`); // 目录名会与现役项目撞名，旧行按 #id 定位
+    expect(old.managed.todo).toBe(1);
+    expect(old.topPriority).toBe('p2');
+  });
+});
+
+describe('reconcileWorkspaces：外壳旧行归并', () => {
+  it('外壳路径上的多行并成一行、键改为 realpath；子仓自己的行不动，随后按键迁路径', async () => {
+    // 旧版外壳先后借了子仓 a、b 的 remote 当身份键，任务散在两行；b 行上还有用户覆盖
+    createTask('git.example.com/x/a', '/p/ws', { title: 'a1', status: 'todo' });
+    createTask('git.example.com/x/a', '/p/ws', { title: 'a2' });
+    createTask('git.example.com/x/b', '/p/ws', { title: 'b1', status: 'doing' });
+    patchProject('git.example.com/x/b', '/p/ws', { displayName: '宴小助', pinned: true });
+    // 子仓 kt 曾是顶层项目（路径还是老的），后来挪进了外壳
+    createTask('git.example.com/x/kt', '/p/kt-old', { title: 'kt1', status: 'todo' });
+
+    const ws = fakeWorkspace('/p/ws');
+    const kt = fakeChild('git.example.com/x/kt', '/p/ws/kt', 'ws');
+    expect(await reconcileWorkspaces([ws, kt])).toBe(1);
+    reconcilePaths([ws, kt]);
+
+    const rows = useDb()
+      .prepare('SELECT id, project_key, path, display_name, pinned FROM project ORDER BY id')
+      .all() as Array<{ id: number; project_key: string; path: string; display_name: string | null; pinned: number }>;
+    const wsRows = rows.filter((r) => r.path === '/p/ws');
+    expect(wsRows).toHaveLength(1);
+    expect(wsRows[0].project_key).toBe('/p/ws');
+    expect(wsRows[0].display_name).toBe('宴小助'); // 目标行为空时继承来源行的覆盖
+    expect(wsRows[0].pinned).toBe(1); // 置顶取并集
+    expect(listTasks('/p/ws').map((t) => t.title).sort()).toEqual(['a1', 'a2', 'b1']);
+    // 子仓行：键不变，路径由 reconcilePaths 迁到外壳内的新位置，任务还在
+    const ktRow = rows.find((r) => r.project_key === 'git.example.com/x/kt')!;
+    expect(ktRow.path).toBe('/p/ws/kt');
+    expect(listTasks('git.example.com/x/kt')).toHaveLength(1);
+
+    // enrich：外壳与子仓各认领自己的行，没有 stale/missing 残留
+    const result = enrich([ws, kt]);
+    expect(result).toHaveLength(2);
+    expect(result[0].managed).toMatchObject({ collected: 1, todo: 1, doing: 1 });
+    expect(result[0].displayName).toBe('宴小助');
+    expect(result[1].managed.todo).toBe(1);
+
+    // 幂等：再跑一次什么都不动
+    expect(await reconcileWorkspaces([ws, kt])).toBe(0);
+  });
+
+  it('目标行选择：已是 realpath 键者优先，否则任务最多者', async () => {
+    createTask('git.example.com/x/a', '/p/ws', { title: 'a1' });
+    createTask('git.example.com/x/a', '/p/ws', { title: 'a2' });
+    const bId = ensureProject('git.example.com/x/b', '/p/ws');
+    const aId = ensureProject('git.example.com/x/a', '/p/ws');
+    await reconcileWorkspaces([fakeWorkspace('/p/ws')]);
+    const rows = useDb().prepare('SELECT id FROM project').all() as Array<{ id: number }>;
+    expect(rows.map((r) => r.id)).toEqual([aId]); // 任务多的 a 行留下，b 行并入后删除
+    expect(rows.map((r) => r.id)).not.toContain(bId);
+  });
+
+  it('归并没跑成时，reconcilePaths 不会把外壳路径上的旧行按键搬到子仓（保住下轮归并的证据）', () => {
+    // 旧版外壳借了子仓 kt 的 remote 当键，路径是外壳；本轮 reconcileWorkspaces 假设失败（未调用）
+    createTask('git.example.com/x/kt', '/p/ws', { title: '外壳老任务' });
+    const ws = fakeWorkspace('/p/ws');
+    const kt = fakeChild('git.example.com/x/kt', '/p/ws/kt', 'ws');
+    reconcilePaths([ws, kt]);
+    const row = useDb().prepare('SELECT path FROM project WHERE project_key = ?').get('git.example.com/x/kt') as { path: string };
+    expect(row.path).toBe('/p/ws'); // 没被搬到 /p/ws/kt
+    // 普通改名照常迁移
+    createTask('git.example.com/x/solo', '/p/solo', { title: 's' });
+    reconcilePaths([fakeProject('git.example.com/x/solo', '/p/solo-renamed')]);
+    expect((useDb().prepare('SELECT path FROM project WHERE project_key = ?').get('git.example.com/x/solo') as { path: string }).path).toBe('/p/solo-renamed');
+  });
+
+  it('没有旧行的工作区什么都不做（懒创建留给首次写任务）', async () => {
+    expect(await reconcileWorkspaces([fakeWorkspace('/p/fresh')])).toBe(0);
+    expect(useDb().prepare('SELECT COUNT(*) AS n FROM project').get()).toEqual({ n: 0 });
+  });
+});
+
+describe('mergeProjects / moveTask', () => {
+  it('merge：任务整体迁到目标行，来源行删除，覆盖字段按规则合并', async () => {
+    createTask('gitee.com/x/app', '/p/app', { title: '老任务' });
+    patchProject('gitee.com/x/app', '/p/app', { description: '老简介', archived: true });
+    createTask('git.example.com/x/app', '/p/app', { title: '新任务' });
+    const from = ensureProject('gitee.com/x/app', '/p/app');
+    const into = ensureProject('git.example.com/x/app', '/p/app');
+    expect(await mergeProjects(from, into)).toBeNull(); // 内存库不备份
+    expect(listTasks('git.example.com/x/app').map((t) => t.title).sort()).toEqual(['新任务', '老任务']);
+    expect(listTasks('gitee.com/x/app')).toEqual([]);
+    const [p] = enrich([fakeProject('git.example.com/x/app', '/p/app')]);
+    expect(p.description).toBe('老简介');
+    expect(p.archived).toBe(false); // 目标行未归档 → 合并后不归档
+    expect(enrich([fakeProject('git.example.com/x/app', '/p/app')])).toHaveLength(1); // 旧行没了
+  });
+
+  it('merge 自己 → 抛错', async () => {
+    const id = ensureProject('k', '/p');
+    await expect(mergeProjects(id, id)).rejects.toThrow();
+  });
+
+  it('move：任务改挂到另一项目（懒创建行），不存在的任务返回 null', () => {
+    const t = createTask('/p/ws', '/p/ws', { title: '下放到子仓' });
+    const moved = moveTask(t.id, 'git.example.com/x/kt', '/p/ws/kt');
+    expect(moved?.projectId).toBe(ensureProject('git.example.com/x/kt', '/p/ws/kt'));
+    expect(listTasks('/p/ws')).toEqual([]);
+    expect(listTasks('git.example.com/x/kt')).toHaveLength(1);
+    expect(moveTask(9999, 'k', '/p')).toBeNull();
   });
 });
 

@@ -200,8 +200,9 @@ export default function TaskCreateModal({
               placeholder="选择目标项目"
               style={{ width: '100%' }}
               options={(projects ?? [])
-                .filter((p) => !p.archived)
-                .map((p) => ({ value: p.name, label: p.displayName }))}
+                // 旧行（missing/stale）的展示名与现役项目同名，进了选择器会把新任务建到旧行上
+                .filter((p) => !p.archived && !p.missing)
+                .map((p) => ({ value: p.name, label: p.parent ? `${p.parent} / ${p.displayName}` : p.displayName }))}
             />
           </div>
         )}

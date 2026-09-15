@@ -50,6 +50,14 @@ export const TASK_TYPE_OPTIONS: Array<{ value: TaskType; label: string }> = (
   ['feature', 'bug', 'optimize'] as TaskType[]
 ).map((v) => ({ value: v, label: TASK_TYPE_META[v].label }));
 
+/**
+ * 项目页链接。子仓名形如 `外壳/子仓`，路由是 `/p/*`，斜杠保留为路径分隔、每段单独转义
+ * （整体 encodeURIComponent 会把斜杠变成 %2F，浏览器/路由对它的还原时机不一致）。
+ */
+export function projectHref(name: string): string {
+  return `/p/${name.split('/').map(encodeURIComponent).join('/')}`;
+}
+
 /** ISO 时间 → 相对时间（中文）。 */
 export function relativeTime(iso: string | null): string {
   if (!iso) return '—';

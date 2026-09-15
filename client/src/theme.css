@@ -986,3 +986,36 @@ button {
   border-radius: var(--radius-sm);
   font-size: 12.5px;
 }
+
+/* ── 工作区 / 子仓 ─────────────────────────────────────────── */
+/* 侧栏：子仓缩进挂在工作区下 */
+.sb-item.is-child {
+  height: 26px;
+  padding-left: 24px;
+  font-size: 12.5px;
+}
+.sb-item.is-child .sb-item-icon {
+  width: 12px;
+  font-size: 10px;
+}
+/* 项目卡片 / 详情里的子仓芯片（可点进子仓） */
+.pcard-subs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.chip-repo {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+button.chip-repo {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+}
+button.chip-repo:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}

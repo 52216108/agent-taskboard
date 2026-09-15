@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import { getDb } from './db';
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { CONFIG } from './config';
+import { getDb, isInMemoryDb, backupTo } from './db';
 import type { ProjectInfo, Task, TaskImage, SubTask, TaskStatus, TaskPriority, TaskType, TodoItem } from './types';
 
 const now = () => new Date().toISOString();
@@ -121,16 +124,147 @@ export function patchProject(key: string, path: string, patch: ProjectPatch): vo
   db.prepare(`UPDATE project SET ${sets.join(', ')} WHERE project_key = ?`).run(...vals);
 }
 
-/** 扫描完成后调用：key 匹配但目录已改名 → 更新 path（在一个事务里批量）。 */
+/**
+ * 扫描完成后调用：key 匹配但目录已改名 → 更新 path（在一个事务里批量）。
+ * 路径落在某个扫描到的工作区（外壳）上的行一律不动：那是旧版外壳借子仓 remote 当键留下的行，
+ * 按路径规则归工作区（见 reconcileWorkspaces）。若归并那一步失败（备份写不进去等）而这里仍按键把它
+ * 搬到子仓路径，归并所依据的"路径=外壳"证据就没了，整批外壳历史任务会静默落到子仓、下轮也无法再试。
+ */
 export function reconcilePaths(scanned: ProjectInfo[]): void {
   const db = getDb();
+  const wsPaths = new Set(scanned.filter((p) => p.kind === 'workspace').map((p) => p.path));
   const upd = db.prepare(
     'UPDATE project SET path = ?, updated_at = ? WHERE project_key = ? AND path <> ?',
   );
+  const sel = db.prepare('SELECT path FROM project WHERE project_key = ?');
   const tx = db.transaction((items: ProjectInfo[]) => {
-    for (const p of items) upd.run(p.path, now(), p.key, p.path);
+    for (const p of items) {
+      const row = sel.get(p.key) as { path: string } | undefined;
+      if (!row || row.path === p.path || wsPaths.has(row.path)) continue;
+      upd.run(p.path, now(), p.key, p.path);
+    }
   });
   tx(scanned);
+}
+
+// ── 项目行合并（工作区旧行自动归并 / 手动 merge）────────────────
+
+/**
+ * 合并前先做一次在线备份到 `<db 目录>/backups/pre-merge-<时间>.db`。
+ * 合并会移动任务归属并删除被并入的 project 行，是本项目唯一会"减少行数"的写操作——
+ * 备份失败就抛出，调用方据此放弃合并（宁可旧行继续以 stale 形式显示，也不做无备份的合并）。
+ * 测试用内存库没有磁盘文件可备，直接跳过。
+ */
+async function backupBeforeMerge(): Promise<string | null> {
+  if (isInMemoryDb()) return null;
+  const dir = join(dirname(CONFIG.dbPath), 'backups');
+  mkdirSync(dir, { recursive: true });
+  const dest = join(dir, `pre-merge-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+  await backupTo(dest);
+  return dest;
+}
+
+/**
+ * 把若干 project 行并入目标行（同一事务）：任务整体改挂到目标行；展示名/简介目标行为空时继承来源；
+ * 置顶取并集；只有全部都归档时目标才保持归档；最后删除来源行。
+ * 任务的 todo_fingerprint 含来源行的 project_key，不同来源行的指纹必不相同，故迁移不会撞
+ * `(project_id, todo_fingerprint)` 唯一索引。
+ * 已知边界：目标行日后若换了 project_key（工作区归并会重打键），旧指纹与新键算出的指纹不再相等，
+ * 同一 todo.md 条目再次「导入」会多出一份——只影响用过 todo.md 导入的工作区，且导入是显式动作。
+ */
+function mergeRowsTx(intoId: number, fromIds: number[]): void {
+  const db = getDb();
+  const get = db.prepare('SELECT * FROM project WHERE id = ?');
+  const moveTasks = db.prepare('UPDATE task SET project_id = ?, updated_at = ? WHERE project_id = ?');
+  const del = db.prepare('DELETE FROM project WHERE id = ?');
+  const setMeta = db.prepare(
+    'UPDATE project SET display_name = ?, description = ?, pinned = ?, archived = ?, updated_at = ? WHERE id = ?',
+  );
+  db.transaction(() => {
+    const into = get.get(intoId) as ProjectRow | undefined;
+    if (!into) throw new Error(`project row ${intoId} not found`);
+    let displayName = into.display_name;
+    let description = into.description;
+    let pinned = !!into.pinned;
+    let archived = !!into.archived;
+    for (const fid of fromIds) {
+      if (fid === intoId) continue;
+      const from = get.get(fid) as ProjectRow | undefined;
+      if (!from) throw new Error(`project row ${fid} not found`);
+      moveTasks.run(intoId, now(), fid);
+      displayName ??= from.display_name;
+      description ??= from.description;
+      pinned = pinned || !!from.pinned;
+      archived = archived && !!from.archived;
+      del.run(fid);
+    }
+    setMeta.run(displayName, description, pinned ? 1 : 0, archived ? 1 : 0, now(), intoId);
+  })();
+}
+
+/**
+ * 手动合并：把 from 行并入 into 行（任务整体迁移，from 行删除），合并前自动备份。
+ * 用途：remote 迁移（gitee → 自建 git）留下的旧行、外壳身份漂移留下的 stale 行，并回现役项目。
+ * 返回备份文件路径（内存库为 null）。
+ */
+export async function mergeProjects(fromId: number, intoId: number): Promise<string | null> {
+  if (fromId === intoId) throw new Error('cannot merge a project into itself');
+  const backup = await backupBeforeMerge();
+  mergeRowsTx(intoId, [fromId]);
+  return backup;
+}
+
+/**
+ * 扫描后调用：把工作区（多仓外壳）的历史项目行归并成一行，并把身份键统一为外壳 realpath。
+ *
+ * 背景：旧版把外壳的身份键"借"自某个子仓的 remote，子仓一增删改名，借的对象就变，
+ * 下一次写任务便新插一行，旧行既不显示也不算失效（路径还在）——同一个外壳在库里散成多行、任务隐身。
+ * 归并规则：路径等于外壳路径的所有行（不论旧键是什么）都属于这个外壳——路径是"这行当初作为外壳建的"证据；
+ * 而路径指向子仓自身的行（子仓曾是顶层项目、后来挪进外壳）按键归子仓，不在此处理。
+ * 目标行优先取已是 realpath 键者，否则任务最多者（并列取最早建的）；随后重打键与路径。
+ * 幂等：归并完成后每个外壳恰有一行且键=realpath，再次调用不会再动。首次真正归并前做一次备份。
+ * 返回归并的外壳数。
+ */
+export async function reconcileWorkspaces(scanned: ProjectInfo[]): Promise<number> {
+  const db = getDb();
+  const sel = db.prepare(
+    `SELECT p.*, (SELECT COUNT(*) FROM task t WHERE t.project_id = p.id) AS task_count
+     FROM project p WHERE p.path = ? OR p.project_key = ? ORDER BY p.id`,
+  );
+  const rekey = db.prepare('UPDATE project SET project_key = ?, path = ?, updated_at = ? WHERE id = ?');
+  let merged = 0;
+  let backedUp = false;
+  for (const ws of scanned) {
+    if (ws.kind !== 'workspace') continue;
+    const rows = sel.all(ws.path, ws.key) as Array<ProjectRow & { task_count: number }>;
+    if (rows.length === 0) continue;
+    if (rows.length === 1 && rows[0].project_key === ws.key && rows[0].path === ws.path) continue;
+    if (!backedUp) {
+      await backupBeforeMerge(); // 失败即抛出，整轮放弃（下次扫描再试）
+      backedUp = true;
+    }
+    const target =
+      rows.find((r) => r.project_key === ws.key) ??
+      [...rows].sort((a, b) => b.task_count - a.task_count || a.id - b.id)[0];
+    db.transaction(() => {
+      mergeRowsTx(
+        target.id,
+        rows.filter((r) => r.id !== target.id).map((r) => r.id),
+      );
+      rekey.run(ws.key, ws.path, now(), target.id);
+    })();
+    merged++;
+  }
+  return merged;
+}
+
+/** 把任务改挂到另一个项目（项目行不存在则懒创建）。任务不存在返回 null。 */
+export function moveTask(id: number, projectKey: string, path: string): Task | null {
+  const db = getDb();
+  if (!getTask(id)) return null;
+  const projectId = ensureProject(projectKey, path);
+  db.prepare('UPDATE task SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, now(), id);
+  return getTask(id);
 }
 
 /** 各项目按状态的受管任务计数（排除 archived），六状态分桶。 */
@@ -170,15 +304,23 @@ function taskSignals(): Map<number, { topPriority: TaskPriority | null; overdue:
   return new Map(rows.map((r) => [r.project_id, { topPriority: r.top, overdue: r.overdue }]));
 }
 
-function missingProject(row: ProjectRow, managed: ManagedCounts): ProjectInfo {
+/**
+ * 仅存在于 DB 的行（目录已消失 / 身份键已对不上）转成列表项。
+ * name 用 `#<dbId>`：这类行的目录名常与现役项目撞名（huaji 旧行 vs 挪进外壳后的 xxx/huaji），
+ * 按目录名解析会永远命中现役项目，旧行就没法被打开、也没法被 merge 指到。
+ */
+function dbOnlyProject(row: ProjectRow, managed: ManagedCounts, stale: boolean): ProjectInfo {
+  const dirName = row.path.split('/').filter(Boolean).pop() ?? row.path;
   return {
     key: row.project_key,
     path: row.path,
-    name: row.path.split('/').filter(Boolean).pop() ?? row.path,
-    displayName: row.display_name || (row.path.split('/').filter(Boolean).pop() ?? row.path),
+    name: `#${row.id}`,
+    kind: 'repo',
+    parent: null,
+    displayName: row.display_name || dirName,
     description: row.description,
     techStack: [],
-    git: { isRepo: false, branch: null, dirtyCount: 0, lastCommit: null, remote: null, nested: false },
+    git: { isRepo: false, branch: null, dirtyCount: 0, lastCommit: null, remote: null },
     todos: { open: 0, doing: 0, done: 0, total: 0 },
     hasTasksFile: false,
     docs: { directory: false, schema: false, api: false },
@@ -188,6 +330,7 @@ function missingProject(row: ProjectRow, managed: ManagedCounts): ProjectInfo {
     pinned: !!row.pinned,
     archived: !!row.archived,
     missing: true,
+    stale,
     managed,
     topPriority: null,
     overdue: 0,
@@ -195,8 +338,9 @@ function missingProject(row: ProjectRow, managed: ManagedCounts): ProjectInfo {
 }
 
 /**
- * 用 DB 状态丰富扫描结果（只读）：应用覆盖、受管任务计数；并追加"DB 有行但已不在扫描结果"的项目。
- * 路径迁移不在这里做（只读），由 reconcilePaths 在扫描后单独执行。
+ * 用 DB 状态丰富扫描结果（只读）：应用覆盖、受管任务计数；并追加"只存在于 DB"的行——
+ * 目录已消失的标 missing，目录还在但身份键对不上的标 stale（missing 同时为 true）。
+ * 路径迁移不在这里做（只读），由 reconcilePaths / reconcileWorkspaces 在扫描后单独执行。
  */
 export function enrich(scanned: ProjectInfo[]): ProjectInfo[] {
   const db = getDb();
@@ -205,18 +349,16 @@ export function enrich(scanned: ProjectInfo[]): ProjectInfo[] {
   const byPath = new Map(rows.map((r) => [r.path, r]));
   const counts = managedCounts();
   const sig = taskSignals();
-  const scannedKeys = new Set(scanned.map((p) => p.key));
   const scannedPaths = new Set(scanned.map((p) => p.path));
+  const claimed = new Set<number>(); // 被某个扫描项目认领的行 id
 
   const enriched = scanned.map((p): ProjectInfo => {
-    // 先按稳定身份键匹配；身份键漂移（如多仓外壳内层仓增减致 remote 变化）时按路径兜底，
-    // 保证目录仍在的项目不丢 DB 覆盖/任务计数。
-    // 兜底选"只读"而非在 reconcilePaths 里把漂移键写回，有两个已知边界（均属罕见、非本次 bug，勿当新缺陷重查）：
-    //  M1 路径复用错关联：删掉某路径的仓 A、把不同的仓 B 克隆进同一路径 → B 的键不在库、按 path 命中 A 的 stale 行，
-    //     会静默继承 A 的历史任务/覆盖。只读兜底每次重扫有自愈机会；写回则会一锤定音劫持，故不写回。
-    //  M2 漂移后写入分裂行：enrich 只填 dbId 不改 p.key，真·漂移后一旦经 API 写任务，ensureProject(新键) 会新插一行，
-    //     原行连同历史被 scannedPaths 从 missing 循环抑制而"隐身"。治它需在 reconcilePaths 里带 UNIQUE/消失判定，不塞本次。
+    // 先按稳定身份键匹配；键对不上时按路径兜底（remote 刚迁移、还没来得及 merge 的过渡期），
+    // 保证目录仍在的项目不丢 DB 覆盖/任务计数。兜底只读、不写回：
+    // 路径复用（删掉仓 A、把不同的仓 B 克隆进同一路径）会按 path 命中 A 的旧行，只读兜底每次重扫都有自愈机会，
+    // 写回则会一锤定音劫持。真要归并由用户显式 merge（工作区例外：路径即身份，reconcileWorkspaces 自动归并）。
     const row = byKey.get(p.key) ?? byPath.get(p.path);
+    if (row) claimed.add(row.id);
     const m = (row && counts.get(row.id)) || emptyManaged();
     const s = (row && sig.get(row.id)) || { topPriority: null, overdue: 0 };
     return {
@@ -227,6 +369,7 @@ export function enrich(scanned: ProjectInfo[]): ProjectInfo[] {
       pinned: row ? !!row.pinned : false,
       archived: row ? !!row.archived : false,
       missing: false,
+      stale: false,
       managed: m,
       topPriority: s.topPriority,
       overdue: s.overdue,
@@ -234,9 +377,9 @@ export function enrich(scanned: ProjectInfo[]): ProjectInfo[] {
   });
 
   for (const row of rows) {
-    // 身份键或路径任一命中扫描结果，即说明目录还在，不判"目录已消失"。
-    if (scannedKeys.has(row.project_key) || scannedPaths.has(row.path)) continue;
-    const mp = missingProject(row, counts.get(row.id) ?? emptyManaged());
+    if (claimed.has(row.id)) continue;
+    // 没被任何扫描项目认领的行：路径还被扫到 → 身份键漂移留下的旧行（stale）；否则目录真的没了（missing）
+    const mp = dbOnlyProject(row, counts.get(row.id) ?? emptyManaged(), scannedPaths.has(row.path));
     const s = sig.get(row.id);
     if (s) {
       mp.topPriority = s.topPriority;
@@ -255,7 +398,11 @@ export function readScanCache(): { payload: ProjectInfo[]; scannedAt: string } |
     | undefined;
   if (!row) return null;
   try {
-    return { payload: JSON.parse(row.payload) as ProjectInfo[], scannedAt: row.scanned_at };
+    const payload = JSON.parse(row.payload) as ProjectInfo[];
+    // 旧版进程写的快照没有 kind/parent 等字段（升级前的缓存）：当作没有缓存，启动后立刻真扫一次，
+    // 否则首屏会用缺字段的旧快照渲染出一批"形态未知"的项目。
+    if (!payload.every((p) => typeof p.kind === 'string')) return null;
+    return { payload, scannedAt: row.scanned_at };
   } catch {
     return null;
   }

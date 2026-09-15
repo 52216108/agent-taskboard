@@ -4,7 +4,7 @@ import { App as AntApp, Checkbox, Spin, Tooltip } from 'antd';
 import { CalendarOutlined } from '@ant-design/icons';
 import type { GlobalTask } from '../types';
 import { fetchAllTasks, setTaskStatus } from '../api';
-import { TASK_STATUS_META, TASK_TYPE_META } from '../util';
+import { TASK_STATUS_META, TASK_TYPE_META, projectHref } from '../util';
 import { useBoard } from '../BoardContext';
 import { PriorityIcon, StatusIcon } from './StatusIcon';
 import TaskEditModal from './TaskEditModal';
@@ -163,10 +163,11 @@ export default function GlobalTaskView() {
                     className="trow-proj"
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`/p/${encodeURIComponent(t.projectDir)}`);
+                      navigate(projectHref(t.projectDir));
                     }}
                   >
-                    {t.projectName}
+                    {/* 子仓任务标出所属工作区，同名子仓（多个外壳都有 server/）才分得清 */}
+                    {t.projectParent ? `${t.projectParent} / ${t.projectName}` : t.projectName}
                   </span>
                 </Tooltip>
               </div>

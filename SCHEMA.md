@@ -18,8 +18,8 @@ P1 无库；P2 起引入。**SQLite 无原生列注释，故本文件与 schema.
 | 列 | 类型 | 说明 |
 |---|---|---|
 | id | INTEGER PK | 内部自增主键，被 task.project_id 引用 |
-| project_key | TEXT UNIQUE | 稳定身份键：归一化 git remote（无 remote 则 realpath）。改名/移动不变 → 任务不断链 |
-| path | TEXT | 当前绝对路径，可随改名被 `reconcilePaths` 更新 |
+| project_key | TEXT UNIQUE | 稳定身份键：归一化 git remote（无 remote 则 realpath）。改名/移动不变 → 任务不断链。**多仓外壳（工作区）恒为外壳目录 realpath**，不借子仓 remote；旧版借来的键由 `reconcileWorkspaces` 在扫描后按"路径=外壳路径"归并成一行并重打键（合并前备份到 `<db 目录>/backups/pre-merge-*.db`） |
+| path | TEXT | 当前绝对路径，可随改名被 `reconcilePaths` 更新。身份键对不上但路径仍被扫到的行以 `stale` 形式显示在看板，可经 `POST /api/projects/merge`（CLI `board merge`）并入现役行 |
 | display_name | TEXT NULL | 用户覆盖展示名；NULL=用扫描值 |
 | description | TEXT NULL | 用户覆盖简介；NULL=用扫描值 |
 | pinned | INTEGER | 置顶：0/1 |

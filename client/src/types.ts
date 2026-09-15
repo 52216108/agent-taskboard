@@ -12,13 +12,19 @@ export interface GitInfo {
   dirtyCount: number;
   lastCommit: string | null;
   remote: string | null;
-  nested: boolean;
 }
+
+/** 项目形态：repo=单个 git 仓/普通目录；workspace=多仓外壳（自身无 .git、子目录里有 git 仓），子仓各自成 repo 项目。 */
+export type ProjectKind = 'repo' | 'workspace';
 
 export interface ProjectInfo {
   key: string;
   path: string;
+  /** 路由/CLI 用的名字：顶层=目录名；工作区子仓=`外壳/子仓`；仅存在于 DB 的旧行=`#<dbId>` */
   name: string;
+  kind: ProjectKind;
+  /** 所属工作区的 name（子仓才有） */
+  parent: string | null;
   displayName: string;
   description: string | null;
   techStack: string[];
@@ -33,6 +39,8 @@ export interface ProjectInfo {
   pinned: boolean;
   archived: boolean;
   missing: boolean;
+  /** 目录仍在但身份键已对不上的 DB 旧行（remote 迁移/外壳身份漂移留下）；此时 missing 也为 true。用 CLI `board merge` 并入现役项目 */
+  stale: boolean;
   managed: { collected: number; backlog: number; todo: number; doing: number; review: number; done: number };
   topPriority: TaskPriority | null;
   overdue: number;
@@ -41,6 +49,8 @@ export interface ProjectInfo {
 export interface GlobalTask extends Task {
   projectName: string;
   projectDir: string;
+  /** 所属工作区 name（子仓任务才有） */
+  projectParent: string | null;
   projectKey: string;
   projectPath: string;
 }
@@ -86,10 +96,20 @@ export interface Task {
   acceptedBy: string | null; // 验收人署名（自报，仅供审计）
 }
 
+/** 详情里挂的"亲属"项目及其任务：工作区带各子仓，子仓带所属工作区 */
+export interface ProjectTasksRef {
+  name: string;
+  displayName: string;
+  path: string;
+  tasks: Task[];
+}
+
 export interface ProjectDetail extends ProjectInfo {
   todoItems: TodoItem[];
   readmeExcerpt: string | null;
   tasks: Task[];
+  children?: ProjectTasksRef[];
+  workspace?: ProjectTasksRef;
 }
 
 export interface ProjectsResponse {

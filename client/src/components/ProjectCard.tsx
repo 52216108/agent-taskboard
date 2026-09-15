@@ -1,5 +1,6 @@
 import { App as AntApp, Tooltip } from 'antd';
 import {
+  ApartmentOutlined,
   BranchesOutlined,
   ClockCircleOutlined,
   FileExclamationOutlined,
@@ -33,19 +34,34 @@ function StatusBar({ managed }: { managed: ProjectInfo['managed'] }) {
   );
 }
 
+/** 工作区卡片上的任务分布：外壳自己的 + 各子仓的合在一起看，否则外壳那条常常是空的、看不出整体进度。 */
+function sumManaged(items: ProjectInfo[]): ProjectInfo['managed'] {
+  const sum = { collected: 0, backlog: 0, todo: 0, doing: 0, review: 0, done: 0 };
+  for (const p of items) for (const s of BOARD_STATUSES) sum[s] += p.managed[s];
+  return sum;
+}
+
 export default function ProjectCard({
   project,
+  children = [],
   onClick,
+  onOpen,
   onChange,
 }: {
   project: ProjectInfo;
+  /** 工作区的子仓（顶层 repo 项目为空） */
+  children?: ProjectInfo[];
   onClick: () => void;
+  /** 点子仓芯片：打开该子仓的项目页 */
+  onOpen?: (name: string) => void;
   onChange: () => void;
 }) {
   const { message } = AntApp.useApp();
   const g = project.git;
   const t = project.todos;
-  const active = activeManaged(project.managed);
+  const isWorkspace = project.kind === 'workspace';
+  const managed = isWorkspace ? sumManaged([project, ...children]) : project.managed;
+  const active = activeManaged(managed);
 
   const togglePin = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,7 +78,18 @@ export default function ProjectCard({
       <div className="pcard-top">
         <span className="pcard-name">{project.displayName}</span>
         {project.displayName !== project.name && <span className="pcard-dir">{project.name}/</span>}
-        {project.missing && <span className="chip chip-warn">目录已消失</span>}
+        {isWorkspace && (
+          <Tooltip title="多仓外壳：自身无 git，下面的子仓各自是一个项目">
+            <span className="chip chip-repo">工作区</span>
+          </Tooltip>
+        )}
+        {project.stale ? (
+          <Tooltip title="目录还在，但这行的身份键已对不上（remote 迁移/外壳身份变更留下的旧行）。任务仍保留，用 CLI「board merge <本行 id> <现役项目名>」并入现役项目">
+            <span className="chip chip-warn">旧身份行</span>
+          </Tooltip>
+        ) : (
+          project.missing && <span className="chip chip-warn">目录已消失</span>
+        )}
         {project.archived && <span className="chip">已归档</span>}
         {(project.topPriority === 'p0' || project.topPriority === 'p1') && (
           <Tooltip title="项目内最高任务优先级">
@@ -93,6 +120,29 @@ export default function ProjectCard({
 
       <div className="pcard-desc">{project.description || '暂无简介'}</div>
 
+      {children.length > 0 && (
+        <div className="pcard-subs">
+          {children.map((c) => {
+            const n = activeManaged(c.managed);
+            return (
+              <Tooltip key={c.key} title={`${c.path}${n > 0 ? ` · 活跃任务 ${n}` : ''}`}>
+                <button
+                  type="button"
+                  className="chip chip-repo"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpen?.(c.name);
+                  }}
+                >
+                  {c.displayName}
+                  {n > 0 && <span style={{ opacity: 0.7 }}>{n}</span>}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+      )}
+
       {project.techStack.length > 0 && (
         <div className="pcard-tags">
           {project.techStack.slice(0, 5).map((tag) => (
@@ -103,13 +153,20 @@ export default function ProjectCard({
         </div>
       )}
 
-      <StatusBar managed={project.managed} />
+      <StatusBar managed={managed} />
 
       <div className="pcard-foot">
         {!project.missing &&
-          (g.isRepo ? (
-            <Tooltip title={g.nested ? 'git 仓库在子目录' : 'git 分支'}>
-              <span className="tcard-meta" style={g.nested ? { color: 'var(--st-review-fg)' } : undefined}>
+          (isWorkspace ? (
+            <Tooltip title="工作区里的 git 子仓数">
+              <span className="tcard-meta">
+                <ApartmentOutlined />
+                {children.length} 个子仓
+              </span>
+            </Tooltip>
+          ) : g.isRepo ? (
+            <Tooltip title="git 分支">
+              <span className="tcard-meta">
                 <BranchesOutlined />
                 {g.branch ?? 'detached'}
               </span>
@@ -118,7 +175,7 @@ export default function ProjectCard({
             <span className="tcard-meta">无 git</span>
           ))}
         {g.dirtyCount > 0 && (
-          <Tooltip title="未提交改动">
+          <Tooltip title={isWorkspace ? '各子仓未提交改动合计' : '未提交改动'}>
             <span className="tcard-meta" style={{ color: 'var(--warn)' }}>
               {g.dirtyCount} 改动
             </span>
@@ -133,7 +190,7 @@ export default function ProjectCard({
             {t.total > 0 ? t.open : '—'}
           </span>
         </Tooltip>
-        <Tooltip title="看板活跃受管任务（待开发+进行中+待验收）">
+        <Tooltip title={`看板活跃受管任务（待开发+进行中+待验收）${isWorkspace ? '，含各子仓' : ''}`}>
           <span className="tcard-meta" style={active > 0 ? { color: 'var(--text-2)' } : undefined}>
             <ProfileOutlined />
             {active > 0 ? active : '—'}
