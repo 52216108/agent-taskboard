@@ -22,20 +22,34 @@ export interface GitInfo {
   dirtyCount: number;
   /** 最近一次 commit 的 ISO 时间。 */
   lastCommit: string | null;
-  /** origin remote URL（原文，未归一）。 */
+  /** origin remote URL（原文，未归一）。工作区聚合时为 null。 */
   remote: string | null;
-  /** git 信息是否来自子目录（如 acme/acme-app）。 */
-  nested: boolean;
 }
+
+/**
+ * 项目形态：
+ * - repo：单个 git 仓（或无 git 的普通目录），身份键 = 归一化 remote（无则 realpath）。
+ * - workspace：多仓外壳——自身无 .git、直接子目录里有 ≥1 个 git 仓（如 acme/ 下放 acme-app + acme-server）。
+ *   身份键 = 外壳目录 realpath（不借子仓 remote，子仓增删改名不会让外壳身份漂移）；
+ *   每个子仓各自成一个 repo 项目，name 为 `外壳名/子仓名`、parent 指向外壳。
+ */
+export type ProjectKind = 'repo' | 'workspace';
 
 /** 看板列表项：一个项目的概要信息。 */
 export interface ProjectInfo {
-  /** 稳定身份键：有 remote 取归一化 remote，否则取 realpath。用于跨重命名追踪（P2 起入库）。 */
+  /** 稳定身份键：有 remote 取归一化 remote，否则取 realpath（工作区恒为 realpath）。用于跨重命名追踪（P2 起入库）。 */
   key: string;
   /** 当前绝对路径。 */
   path: string;
-  /** 目录名。 */
+  /**
+   * 路由/CLI 用的项目名：顶层项目＝目录名；工作区子项目＝`外壳名/子仓名`；
+   * 仅存在于 DB 的旧行（missing/stale）＝`#<dbId>`（目录名会与现役项目撞名，无法据以定位）。
+   */
   name: string;
+  /** 项目形态，见 ProjectKind。 */
+  kind: ProjectKind;
+  /** 所属工作区的 name（工作区子项目才有）；顶层项目为 null。 */
+  parent: string | null;
   /** 展示名：package.json name 或 README 标题，回退到目录名。 */
   displayName: string;
   /** 一句话用途：package.json description 或 README 首段，可能为空。 */
@@ -60,6 +74,11 @@ export interface ProjectInfo {
   archived: boolean;
   /** DB 有行但目录已不在扫描结果中（移出/删除），保住其受管任务可见。 */
   missing: boolean;
+  /**
+   * DB 旧行：目录仍在（路径被某个现役项目扫到）但身份键已对不上——remote 迁移、外壳身份漂移都会留下这种行。
+   * 与 missing 一样只存在于 DB、任务仍可见；区别是目录没丢，应当用 merge 并入现役项目。stale 时 missing 也为 true。
+   */
+  stale: boolean;
   /** 受管任务计数（来自 SQLite task 表，区别于 todo.md 的 todos）。按六状态分桶（不含 archived）。 */
   managed: { collected: number; backlog: number; todo: number; doing: number; review: number; done: number };
   // ── 6A 卡片信号（由 enrich 填，scanner 给默认）──
@@ -124,6 +143,14 @@ export interface Task {
 export interface ProjectDetail extends ProjectInfo {
   todoItems: TodoItem[];
   readmeExcerpt: string | null;
+}
+
+/** 工作区详情里挂的"亲属"项目及其受管任务（外壳看全部子仓、子仓看外壳的跨仓任务）。 */
+export interface ProjectTasksRef {
+  name: string;
+  displayName: string;
+  path: string;
+  tasks: Task[];
 }
 
 /** 全局任务视图条目：受管任务 + 所属项目信息。 */

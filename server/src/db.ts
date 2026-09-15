@@ -7,10 +7,17 @@ import { CONFIG } from './config';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let _db: Database.Database | null = null;
+let _inMemory = false;
+
+/** 当前连接是否为测试用内存库（此时没有磁盘文件可备份，备份类操作应跳过而不是去备份 CONFIG.dbPath 指向的真库）。 */
+export function isInMemoryDb(): boolean {
+  return _inMemory;
+}
 
 /** 获取（首次调用时初始化）SQLite 连接，并幂等建表。 */
 export function getDb(): Database.Database {
   if (_db) return _db;
+  _inMemory = false;
   mkdirSync(dirname(CONFIG.dbPath), { recursive: true });
   const db = new Database(CONFIG.dbPath);
   db.pragma('journal_mode = WAL');
@@ -96,6 +103,7 @@ export async function backupTo(dest: string): Promise<void> {
 /** 测试用：用内存库替换连接（先关闭旧连接，避免 fd 泄漏）。 */
 export function useInMemoryDb(): Database.Database {
   if (_db) _db.close();
+  _inMemory = true;
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.exec(readFileSync(join(__dirname, 'schema.sql'), 'utf8'));

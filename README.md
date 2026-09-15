@@ -61,7 +61,7 @@ the Claude Code skill.
 **Project scanning** (read-only, live)
 - Git branch, uncommitted change count, last commit time
 - Tech-stack detection, README summary, `tasks/todo.md` parsing
-- Merges nested git repos (wrapper directory + inner repo layouts)
+- Multi-repo workspaces: a wrapper directory holding several git repos (say `acme/` with `acme-app`, `acme-server`, `acme-sdk`) becomes one **workspace** plus one project per inner repo; the workspace board shows every repo's tasks with a repo tag, and cross-repo tasks live on the workspace itself
 
 **Task board**
 - Workspace UI: a persistent left sidebar (search / project list / global tasks) with a breadcrumb header and per-page toolbar; light and dark themes
@@ -197,11 +197,18 @@ board                       list projects
 board <project>             show a project's tasks (--json for structured output)
 board here                  show tasks for the project owning the current directory
 board here add <title>      file a task against the current project (--bug / --optimize)
+board here add <title> --repo <sub>   inside a workspace: file it against a specific inner repo
 board here doing <id> --as <name>   claim a task
 board here review <id>      hand it back for review when done
 board [here] reject <id> "reason"   bounce a task back, reason is fed to the agent
+board move <id> <project>   re-home a task (e.g. from a workspace down to acme/acme-app)
+board merge <#id> <project> fold a stale project row (renamed remote etc.) into the live one; backs up first
 board backup                back up the database
 ```
+
+Inside a workspace, `board here` lists the workspace's own cross-repo tasks and then each inner repo's;
+inside an inner repo it lists that repo's tasks plus the workspace's cross-repo ones — so an agent started
+at either level sees everything it may need to touch.
 
 ## Wiring up your coding agent
 

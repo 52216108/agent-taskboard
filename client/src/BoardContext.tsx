@@ -1,3 +1,4 @@
+import { projectHref } from './util';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntApp } from 'antd';
 import type { ProjectInfo } from './types';
@@ -188,7 +189,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
             });
             systemNotification.onclick = () => {
               window.focus();
-              window.location.assign(project ? `/p/${encodeURIComponent(project.name)}` : '/tasks');
+              window.location.assign(project ? projectHref(project.name) : '/tasks');
               systemNotification.close();
             };
             const shown = await new Promise<boolean>((resolve) => {

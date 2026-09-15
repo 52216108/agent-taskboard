@@ -52,7 +52,7 @@ agent 给自己列的计划活在上下文窗口里，而上下文是会丢失�
 **项目扫描**（只读，实时）
 - git 分支、未提交改动数、最近提交时间
 - 技术栈识别、README 摘要、`tasks/todo.md` 解析
-- 嵌套 git 仓库归并（外壳目录 + 内层仓库的项目结构）
+- 多仓工作区：一个外壳目录装着好几个 git 仓（比如 `acme/` 下放 `acme-app`、`acme-server`、`acme-sdk`）时，外壳成为一个**工作区**、每个子仓各自是一个项目；工作区看板合并显示各子仓的任务并带仓标签，跨仓任务直接挂在工作区上
 
 **任务看板**
 - 工作区界面：左侧常驻侧边栏（搜索 / 项目列表 / 全局任务）+ 右侧面包屑与工具条；支持明暗主题
@@ -177,11 +177,17 @@ board                       列出项目
 board <项目>                查看某项目的任务（--json 输出结构化原文）
 board here                  看「当前目录所属项目」的任务
 board here add <标题>       给当前项目登记任务（--bug / --optimize 指定类型）
+board here add <标题> --repo <子仓>   在工作区里把任务登记到指定子仓
 board here doing <id> --as <名字>   领活并署名
 board here review <id>      干完交回验收
 board [here] reject <id> "原因"     验收打回，原因回灌给 agent
+board move <id> <项目>      把任务改挂到另一个项目（如从工作区下放到 acme/acme-app）
+board merge <#id> <项目>    把旧项目行（remote 迁移等留下的）并入现役项目，合并前自动备份
 board backup                备份数据库
 ```
+
+在工作区目录里 `board here` 先列工作区自己的跨仓任务、再逐个子仓列；在子仓里则列本仓任务、
+再附上工作区的跨仓任务——不管 agent 从哪一层进来，都能看到它可能要碰的活。
 
 ## 接入你的 coding agent
 

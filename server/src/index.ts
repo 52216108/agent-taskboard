@@ -11,9 +11,13 @@ import { getDb } from './db';
 import {
   enrich,
   reconcilePaths,
+  reconcileWorkspaces,
+  mergeProjects,
+  moveTask,
   readScanCache,
   writeScanCache,
   patchProject,
+  ensureProject,
   listTasks,
   listAllTasks,
   createTask,
@@ -29,7 +33,7 @@ import {
   type NewTask,
   type TaskPatch,
 } from './repo';
-import type { ProjectInfo, TaskStatus, TaskPriority, TaskType, SubTask } from './types';
+import type { ProjectInfo, ProjectTasksRef, TaskStatus, TaskPriority, TaskType, SubTask } from './types';
 import {
   saveImage,
   deleteImage,
@@ -75,6 +79,14 @@ let inflight: Promise<ProjectInfo[]> | null = null;
 
 async function runScan(): Promise<ProjectInfo[]> {
   const data = await scanProjects(CONFIG.roots, CONFIG.extraProjects);
+  // 工作区旧行归并（写，含合并前备份）先于路径迁移。备份/归并失败只记日志，本轮扫描照常——
+  // 旧行以 stale 形式可见，下次扫描再试（reconcilePaths 不会动外壳路径上的行，归并证据不会被毁掉）。
+  try {
+    const merged = await reconcileWorkspaces(data);
+    if (merged > 0) app.log.info(`workspace rows merged: ${merged}`);
+  } catch (e) {
+    app.log.error(e, 'reconcileWorkspaces failed; skipped this round');
+  }
   reconcilePaths(data); // 改名迁移（写）只在新鲜扫描时做
   const at = Date.now();
   rawCache = { at, data };
@@ -206,12 +218,63 @@ app.post('/api/projects/scan', async () => {
   return listResponse();
 });
 
+/**
+ * 详情附带的"亲属"任务：工作区带上每个子仓的任务（children），子仓带上工作区的跨仓任务（workspace）。
+ * 在外壳目录里干活的 agent 一次就能看全，在子仓里的也不会漏掉挂在工作区上的跨仓任务。
+ */
+function familyTasks(p: ProjectInfo): { children?: ProjectTasksRef[]; workspace?: ProjectTasksRef } {
+  const all = enrich(rawCache?.data ?? []);
+  const ref = (x: ProjectInfo): ProjectTasksRef => ({
+    name: x.name,
+    displayName: x.displayName,
+    path: x.path,
+    tasks: listTasks(x.key),
+  });
+  if (p.kind === 'workspace') return { children: all.filter((x) => x.parent === p.name).map(ref) };
+  if (p.parent) {
+    const ws = all.find((x) => x.name === p.parent);
+    if (ws) return { workspace: ref(ws) };
+  }
+  return {};
+}
+
 app.get<{ Params: { name: string } }>('/api/projects/:name', async (req, reply) => {
   const p = await resolve(req.params.name);
   if (!p) return reply.code(404).send({ error: `project not found: ${req.params.name}` });
   // 目录已消失的项目不去读其文件系统，直接给空 todo/readme，仍带回受管任务
   if (p.missing) return { ...p, todoItems: [], readmeExcerpt: null, tasks: listTasks(p.key) };
-  return { ...buildDetail(p), tasks: listTasks(p.key) };
+  return { ...buildDetail(p), tasks: listTasks(p.key), ...familyTasks(p) };
+});
+
+// 合并项目行：把 from 的任务整体并入 into 后删除 from 行（合并前自动备份到 <db 目录>/backups/）。
+// 用途：remote 迁移 / 外壳身份漂移留下的旧行（列表里 name 形如 `#<id>`、带 missing/stale 标记）并回现役项目。
+app.post<{ Body: { from?: unknown; into?: unknown } }>('/api/projects/merge', async (req, reply) => {
+  const { from, into } = req.body ?? {};
+  if (typeof from !== 'string' || typeof into !== 'string')
+    return reply.code(400).send({ error: 'from and into required (project names)' });
+  const src = await resolve(from);
+  if (!src) return reply.code(404).send({ error: `project not found: ${from}` });
+  const dst = await resolve(into);
+  if (!dst) return reply.code(404).send({ error: `project not found: ${into}` });
+  if (src.dbId == null) return reply.code(400).send({ error: `${from} has no board data to merge` });
+  const intoId = ensureProject(dst.key, dst.path); // 目标可能还没 DB 行（从未登记过任务）
+  if (src.dbId === intoId) return reply.code(400).send({ error: 'cannot merge a project into itself' });
+  const backup = await mergeProjects(src.dbId, intoId);
+  const project = enrich(rawCache?.data ?? []).find((x) => x.dbId === intoId) ?? dst;
+  return { project, backup };
+});
+
+// 任务改挂到另一个项目（如从工作区下放到具体子仓）。body.project=目标项目 name。
+app.post<{ Params: { id: string }; Body: { project?: unknown } }>('/api/tasks/:id/move', async (req, reply) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return reply.code(400).send({ error: 'bad id' });
+  const name = (req.body ?? {}).project;
+  if (typeof name !== 'string' || !name.trim()) return reply.code(400).send({ error: 'project required' });
+  const p = await resolve(name);
+  if (!p) return reply.code(404).send({ error: `project not found: ${name}` });
+  const task = moveTask(id, p.key, p.path);
+  if (!task) return reply.code(404).send({ error: 'task not found' });
+  return task;
 });
 
 // 项目覆盖：置顶/归档/改展示名/改简介
@@ -247,7 +310,8 @@ app.get<{ Querystring: { includeArchived?: string } }>('/api/tasks', async (req)
       projectKey,
       projectPath,
       projectName: p?.displayName ?? dir, // 展示名
-      projectDir: p?.name ?? dir, // 路由用的目录名（= detail 路由的 :name）
+      projectDir: p?.name ?? dir, // 路由用的项目名（= detail 路由的 :name；子仓形如 外壳/子仓）
+      projectParent: p?.parent ?? null, // 所属工作区 name（子仓任务才有），全局视图用来标出处
     };
   });
   return { tasks };

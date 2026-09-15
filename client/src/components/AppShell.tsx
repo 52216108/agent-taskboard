@@ -16,7 +16,7 @@ import {
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useBoard } from '../BoardContext';
-import { activeManaged, activityLevel, relativeTime } from '../util';
+import { activeManaged, activityLevel, projectHref, relativeTime } from '../util';
 import TaskCreateModal from './TaskCreateModal';
 
 /**
@@ -25,15 +25,21 @@ import TaskCreateModal from './TaskCreateModal';
  */
 function useRouteProject(): string | undefined {
   const { pathname } = useLocation();
-  const m = /^\/p\/([^/]+)/.exec(pathname);
+  const m = /^\/p\/(.+)$/.exec(pathname);
   if (!m) return undefined;
-  try {
-    return decodeURIComponent(m[1]);
-  } catch {
-    // 畸形转义（手输 /p/foo%bar）会让 decodeURIComponent 抛 URIError。
-    // 这里在 AppShell 顶层每次渲染都跑，外面没有 error boundary——抛出去就是整站白屏。
-    return m[1];
-  }
+  // 子仓名带斜杠（外壳/子仓），按段解码再拼回
+  return m[1]
+    .split('/')
+    .map((seg) => {
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        // 畸形转义（手输 /p/foo%bar）会让 decodeURIComponent 抛 URIError。
+        // 这里在 AppShell 顶层每次渲染都跑，外面没有 error boundary——抛出去就是整站白屏。
+        return seg;
+      }
+    })
+    .join('/');
 }
 
 /** 面包屑：从路由推导，不需要各页面自己上报。 */
@@ -143,10 +149,15 @@ export default function AppShell({
   // 在全局任务页，搜索词是在搜任务标题，拿它过滤项目导航只会把侧边栏清空成「无匹配项目」，
   // 看起来像项目都没了。那一页就不过滤导航。
   const q = pathname === '/tasks' ? '' : search.trim().toLowerCase();
-  // 侧边栏项目列表：归档的不进导航（要看去「项目概览」开「含归档」），置顶恒前，其余按最近活跃
-  const navProjects = projects
-    .filter((p) => !p.archived)
-    .filter((p) => !q || p.name.toLowerCase().includes(q) || p.displayName.toLowerCase().includes(q))
+  const live = projects.filter((p) => !p.archived);
+  const matches = (p: (typeof live)[number]) =>
+    !q || p.name.toLowerCase().includes(q) || p.displayName.toLowerCase().includes(q);
+  const childrenOf = (name: string) => live.filter((c) => c.parent === name);
+  // 侧边栏项目列表：归档的不进导航（要看去「项目概览」开「含归档」），置顶恒前，其余按最近活跃；
+  // 工作区的子仓缩进挂在其下（搜索命中子仓时连外壳一起显示）
+  const tops = live
+    .filter((p) => !p.parent)
+    .filter((p) => matches(p) || childrenOf(p.name).some(matches))
     .sort((a, b) =>
       a.pinned === b.pinned
         ? (b.lastActive ?? '').localeCompare(a.lastActive ?? '')
@@ -154,8 +165,12 @@ export default function AppShell({
           ? -1
           : 1,
     );
-
-  const live = projects.filter((p) => !p.archived);
+  const navProjects = tops.flatMap((p) => [
+    { p, child: false },
+    ...childrenOf(p.name)
+      .filter((c) => matches(c) || matches(p))
+      .map((c) => ({ p: c, child: true })),
+  ]);
   // 「全局任务」徽标跟该页默认筛选（未完成）同口径，否则侧边栏写 12 点进去 34 条，看着像数错了
   const openTasks = live.reduce(
     (n, p) => n + p.managed.collected + p.managed.backlog + activeManaged(p.managed),
@@ -210,8 +225,8 @@ export default function AppShell({
             end
             icon={<AppstoreOutlined />}
             label="项目概览"
-            badge={live.length}
-            badgeTitle="未归档项目数"
+            badge={live.filter((p) => !p.parent).length}
+            badgeTitle="未归档项目数（工作区算一个，子仓不单独计）"
             onNavigate={() => setNavOpen(false)}
           />
           <NavItem
@@ -229,14 +244,19 @@ export default function AppShell({
               <span className="sb-item-label">{q ? '无匹配项目' : '未发现项目'}</span>
             </div>
           ) : (
-            navProjects.map((p) => {
+            navProjects.map(({ p, child }) => {
               const active = activeManaged(p.managed);
+              const title = p.stale
+                ? '身份键已变更的旧行（任务仍保留，可用 board merge 并入现役项目）'
+                : p.missing
+                  ? '目录已消失（任务仍保留）'
+                  : p.path;
               return (
                 <NavLink
                   key={p.key}
-                  to={`/p/${encodeURIComponent(p.name)}`}
-                  className={`sb-item${p.name === routeProject ? ' is-active' : ''}${p.missing ? ' is-dim' : ''}`}
-                  title={p.missing ? '目录已消失（任务仍保留）' : p.path}
+                  to={projectHref(p.name)}
+                  className={`sb-item${p.name === routeProject ? ' is-active' : ''}${p.missing ? ' is-dim' : ''}${child ? ' is-child' : ''}`}
+                  title={title}
                   onClick={() => setNavOpen(false)}
                 >
                   <span className="sb-item-icon">
