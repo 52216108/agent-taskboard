@@ -198,17 +198,19 @@ board <project>             show a project's tasks (--json for structured output
 board here                  show tasks for the project owning the current directory
 board here add <title>      file a task against the current project (--bug / --optimize)
 board here add <title> --repo <sub>   inside a workspace: file it against a specific inner repo
+board here add <title> --repo a --repo b   touches several repos: lands on the workspace, tagged with the repos involved
 board here doing <id> --as <name>   claim a task
 board here review <id>      hand it back for review when done
 board [here] reject <id> "reason"   bounce a task back, reason is fed to the agent
 board move <id> <project>   re-home a task (e.g. from a workspace down to acme/acme-app)
+board tags <id> [repo...]   set which inner repos a workspace-level task touches (no args = clear)
 board merge <#id> <project> fold a stale project row (renamed remote etc.) into the live one; backs up first
 board backup                back up the database
 ```
 
 Inside a workspace, `board here` lists the workspace's own cross-repo tasks and then each inner repo's;
-inside an inner repo it lists that repo's tasks plus the workspace's cross-repo ones — so an agent started
-at either level sees everything it may need to touch.
+inside an inner repo it lists that repo's tasks plus the workspace's cross-repo ones that touch it (untagged
+ones count as touching every repo) — so an agent started at either level sees everything it may need to touch.
 
 ## Wiring up your coding agent
 

@@ -1019,3 +1019,16 @@ button.chip-repo {
 button.chip-repo:hover {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
+/* 涉及仓标签（跨仓任务碰到的子仓）：虚线框，区别于实底的归属标签 */
+.chip-tag {
+  display: inline-block; /* inline-block 才能让 text-overflow 生效；行高填满 18px 高减去上下边框 */
+  line-height: 16px;
+  max-width: 160px; /* 仓名可能很长（外壳名-子仓名），超出截断，不把全局行的标题挤没 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  height: 18px;
+  box-sizing: border-box;
+}

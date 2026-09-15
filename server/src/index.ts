@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { existsSync, createReadStream } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
@@ -71,6 +71,28 @@ function validateSubtasks(v: unknown): { error: string } | { subtasks: SubTask[]
     out.push({ id: s.id as number, title, done: s.done });
   }
   return { subtasks: out };
+}
+
+const MAX_TAGS = 20;
+const MAX_TAG_LEN = 40;
+
+/**
+ * 校验任务标签（客户端整组提交）：字符串数组 ≤20 项，每项 trim 后 1..40 字符、无控制字符；去重、保序。
+ * 用途：挂在工作区上的跨仓任务标注"涉及哪些子仓"（值=子仓目录名），子仓目录里 `board here` 据此只显示涉及本仓的跨仓任务。
+ */
+function validateTags(v: unknown): { error: string } | { tags: string[] } {
+  if (!Array.isArray(v)) return { error: 'bad tags (need array of strings)' };
+  if (v.length > MAX_TAGS) return { error: `too many tags (max ${MAX_TAGS})` };
+  const out: string[] = [];
+  for (const it of v) {
+    if (typeof it !== 'string') return { error: 'bad tag (need string)' };
+    const t = it.trim();
+    if (t.length < 1 || t.length > MAX_TAG_LEN) return { error: `bad tag (need 1-${MAX_TAG_LEN} chars)` };
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f\x7f]/.test(t)) return { error: 'bad tag (control characters)' };
+    if (!out.includes(t)) out.push(t);
+  }
+  return { tags: out };
 }
 
 // 仅缓存昂贵的原始扫描结果（git/fs）；DB 覆盖/任务计数在每次请求时 enrich（廉价）。
@@ -221,19 +243,24 @@ app.post('/api/projects/scan', async () => {
 /**
  * 详情附带的"亲属"任务：工作区带上每个子仓的任务（children），子仓带上工作区的跨仓任务（workspace）。
  * 在外壳目录里干活的 agent 一次就能看全，在子仓里的也不会漏掉挂在工作区上的跨仓任务。
+ * 子仓拿到的工作区任务只含「涉及本仓」的：tags 为空（没标仓，视为都相关）或 tags 含本仓目录名；
+ * 明确标了别的仓的跨仓任务不再出现在本仓视图里当噪音。
  */
 function familyTasks(p: ProjectInfo): { children?: ProjectTasksRef[]; workspace?: ProjectTasksRef } {
   const all = enrich(rawCache?.data ?? []);
-  const ref = (x: ProjectInfo): ProjectTasksRef => ({
+  const ref = (x: ProjectInfo, tasks = listTasks(x.key)): ProjectTasksRef => ({
     name: x.name,
     displayName: x.displayName,
     path: x.path,
-    tasks: listTasks(x.key),
+    tasks,
   });
-  if (p.kind === 'workspace') return { children: all.filter((x) => x.parent === p.name).map(ref) };
+  if (p.kind === 'workspace') return { children: all.filter((x) => x.parent === p.name).map((x) => ref(x)) };
   if (p.parent) {
     const ws = all.find((x) => x.name === p.parent);
-    if (ws) return { workspace: ref(ws) };
+    if (ws) {
+      const mine = basename(p.path);
+      return { workspace: ref(ws, listTasks(ws.key).filter((t) => t.tags.length === 0 || t.tags.includes(mine))) };
+    }
   }
   return {};
 }
@@ -379,6 +406,11 @@ app.post<{ Params: { name: string }; Body: NewTask }>(
       if (body.assignee.length < 1 || body.assignee.length > 32)
         return reply.code(400).send({ error: 'bad assignee (need 1-32 chars)' });
     }
+    if (body.tags !== undefined) {
+      const r = validateTags(body.tags);
+      if ('error' in r) return reply.code(400).send({ error: r.error });
+      body.tags = r.tags;
+    }
     const created = createTask(p.key, p.path, body);
     taskEvents.publishCreatedReview(created);
     return created;
@@ -413,6 +445,11 @@ app.patch<{ Params: { id: string }; Body: TaskPatch }>('/api/tasks/:id', async (
     const r = validateSubtasks(body.subtasks);
     if ('error' in r) return reply.code(400).send({ error: r.error });
     body.subtasks = r.subtasks; // 用 trim 归一后的数组落库
+  }
+  if (body.tags !== undefined) {
+    const r = validateTags(body.tags);
+    if ('error' in r) return reply.code(400).send({ error: r.error });
+    body.tags = r.tags;
   }
   // 只在首次进入 review 时推送：review 内普通编辑和重复置 review 都不能制造通知噪音。
   const previous = body.status === 'review' ? getTask(id) : null;

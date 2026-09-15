@@ -141,6 +141,7 @@ interface TaskRow {
   description: string | null;
   assignee?: string | null;
   rejectReason?: string | null;
+  tags?: string[]; // 跨仓任务的「涉及仓」（子仓目录名）；旧服务可能不返回
   images?: TaskImage[]; // 旧服务（未含 images 列）可能不返回此字段，故 optional + 调用处兜底
   subtasks?: SubTask[]; // 同上，旧服务可能不返回
 }
@@ -173,7 +174,9 @@ function printTasks(tasks: TaskRow[]) {
     const who = t.assignee ? C.dim(` @${t.assignee}`) : '';
     const subs = t.subtasks ?? [];
     const subCount = subs.length ? C.dim(` (${subs.filter((s) => s.done).length}/${subs.length})`) : '';
-    console.log(`  ${mark} ${stat} [${t.priority.toUpperCase()}] ${ty}#${t.id} ${t.title}${cam}${who}${subCount}`);
+    // 涉及仓标签：跨仓任务标出碰哪几个子仓（值=子仓目录名）
+    const tg = t.tags?.length ? C.dim(` ⟨${t.tags.join(', ')}⟩`) : '';
+    console.log(`  ${mark} ${stat} [${t.priority.toUpperCase()}] ${ty}#${t.id} ${t.title}${tg}${cam}${who}${subCount}`);
     if (t.rejectReason && t.rejectReason.trim()) {
       // 上轮验收打回原因——agent 领任务时优先消化这里
       for (const line of t.rejectReason.split('\n')) console.log(C.yellow(`      ⤺ 打回: ${line}`));
@@ -217,7 +220,7 @@ async function showProject(name: string, json = false) {
   console.log(C.bold('\n受管任务:'));
   console.log(C.dim('  （agent 只领「待开发」的活；「已收集」是收件箱未分诊，需人工晋级到「待规划」再排期）'));
   if (d.kind === 'workspace') {
-    console.log(C.dim(`  工作区级任务（跨仓）；登记到某个子仓用 board here add "标题" --repo <子仓>`));
+    console.log(C.dim(`  工作区级任务（跨仓，⟨…⟩ 为涉及仓）；登记到某个子仓用 board here add "标题" --repo <子仓>，涉及多个仓写多个 --repo`));
   }
   printTasks(d.tasks);
   for (const c of kids) {
@@ -225,7 +228,7 @@ async function showProject(name: string, json = false) {
     printTasks(c.tasks);
   }
   if (d.workspace) {
-    console.log(C.bold(`\n── 工作区 ${d.workspace.displayName}（${d.workspace.name}）的跨仓任务 ──`));
+    console.log(C.bold(`\n── 工作区 ${d.workspace.displayName}（${d.workspace.name}）的跨仓任务（涉及本仓或未标仓）──`));
     printTasks(d.workspace.tasks);
   }
 }
@@ -254,27 +257,64 @@ function extractType(words: string[]): { title: string; taskType?: TaskType } {
   return { title: rest.join(' '), taskType };
 }
 
-/** 从词组里抽出 `--repo <子仓>`（只在 here add 里用），返回剩余词。 */
-function extractRepo(words: string[]): { repo?: string; rest: string[] } {
-  const i = words.indexOf('--repo');
-  if (i < 0) return { rest: words };
-  const repo = words[i + 1];
-  if (!repo || repo.startsWith('--')) throw new Error('--repo 后需跟子仓目录名');
-  return { repo, rest: [...words.slice(0, i), ...words.slice(i + 2)] };
+/**
+ * 从词组里抽出 `--repo <子仓>`（只在 here add 里用），可重复、可逗号分隔（--repo a --repo b / --repo a,b），
+ * 返回去重后的子仓名列表与剩余词。
+ */
+function extractRepos(words: string[]): { repos: string[]; rest: string[] } {
+  const repos: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== '--repo') {
+      rest.push(words[i]);
+      continue;
+    }
+    const v = words[++i];
+    if (!v || v.startsWith('--')) throw new Error('--repo 后需跟子仓目录名');
+    for (const r of v.split(',').map((x) => x.trim()).filter(Boolean)) if (!repos.includes(r)) repos.push(r);
+  }
+  return { repos, rest };
 }
 
-async function addTask(name: string, words: string[]) {
+async function addTask(name: string, words: string[], tags?: string[]) {
   const { title, taskType } = extractType(words);
   if (!title.trim()) throw new Error('用法：board add <项目> <标题> [--bug|--optimize|--type <t>]');
-  const body: { title: string; taskType?: TaskType } = { title };
+  const body: { title: string; taskType?: TaskType; tags?: string[] } = { title };
   if (taskType) body.taskType = taskType;
+  if (tags?.length) body.tags = tags;
   const t = await api<{ id: number }>(`/api/projects/${enc(name)}/tasks`, {
     method: 'POST',
     write: true,
     body: JSON.stringify(body),
   });
   const tag = taskType && taskType !== 'feature' ? `[${TYPE_LABEL[taskType]}] ` : '';
-  console.log(C.green(`✓ 已新建任务 #${t.id}：${tag}${title}`) + C.dim(`  → ${name}`));
+  const tg = tags?.length ? ` ⟨${tags.join(', ')}⟩` : '';
+  console.log(C.green(`✓ 已新建任务 #${t.id}：${tag}${title}`) + C.dim(`  → ${name}${tg}`));
+}
+
+/**
+ * 设置任务的涉及仓标签：`board tags <id> a b`；不带仓名 = 清空。
+ * 仓名与 `--repo` 同款校验（必须是该任务所在工作区的子仓）：写错的仓名不匹配任何子仓，
+ * 任务会从每个子仓的 `board here` 里消失，只剩工作区层可见，很难察觉。
+ */
+async function tagsCmd(args: string[]) {
+  const id = Number(args[0]);
+  if (!Number.isInteger(id)) throw new Error('用法：board tags <任务id> [子仓名...]（不带仓名=清空）');
+  const tags = [...new Set(args.slice(1).flatMap((a) => a.split(',').map((x) => x.trim()).filter(Boolean)))];
+  if (tags.length > 0) {
+    const all = await api<{ tasks: Array<{ id: number; projectDir: string; projectParent: string | null }> }>('/api/tasks?includeArchived=1');
+    const t = all.tasks.find((x) => x.id === id);
+    if (!t) throw new Error(`任务 #${id} 不存在`);
+    const r = await api<{ projects: P[] }>('/api/projects');
+    const owner = r.projects.find((x) => x.name === t.projectDir);
+    const ws = t.projectParent ?? (owner?.kind === 'workspace' ? owner.name : null);
+    if (!ws) throw new Error(`任务 #${id} 不在工作区（多仓外壳）上，涉及仓标签没有意义`);
+    const subs = r.projects.filter((x) => x.parent === ws && !x.missing).map((x) => x.name.slice(ws.length + 1));
+    const unknown = tags.filter((x) => !subs.includes(x));
+    if (unknown.length) throw new Error(`工作区 ${ws} 下没有子仓 ${unknown.join(', ')}；可选：${subs.join(', ') || '(无)'}`);
+  }
+  await api(`/api/tasks/${id}`, { method: 'PATCH', write: true, body: JSON.stringify({ tags }) });
+  console.log(C.green(`✓ #${id} 涉及仓 → ${tags.length ? tags.join(', ') : '(清空)'}`));
 }
 
 function safeReal(p: string): string {
@@ -381,17 +421,17 @@ async function here(rest: string[]) {
   if (!sub) return showProject(p.name);
   if (sub === '--json') return showProject(p.name, true);
   if (sub === 'add') {
-    const { repo, rest: words } = extractRepo(args);
-    if (!repo) return addTask(p.name, words);
+    const { repos, rest: words } = extractRepos(args);
+    if (repos.length === 0) return addTask(p.name, words);
     const ws = p.kind === 'workspace' ? p.name : p.parent;
     if (!ws) throw new Error('--repo 只在工作区（多仓外壳）或其子仓目录里可用');
-    const target = `${ws}/${repo}`;
     const r = await api<{ projects: P[] }>('/api/projects');
-    if (!r.projects.some((x) => x.name === target && !x.missing)) {
-      const subs = r.projects.filter((x) => x.parent === ws && !x.missing).map((x) => x.name.slice(ws.length + 1));
-      throw new Error(`工作区 ${ws} 下没有子仓 ${repo}；可选：${subs.join(', ') || '(无)'}`);
-    }
-    return addTask(target, words);
+    const subs = r.projects.filter((x) => x.parent === ws && !x.missing).map((x) => x.name.slice(ws.length + 1));
+    const unknown = repos.filter((x) => !subs.includes(x));
+    if (unknown.length) throw new Error(`工作区 ${ws} 下没有子仓 ${unknown.join(', ')}；可选：${subs.join(', ') || '(无)'}`);
+    // 只涉及一个仓 → 归属该子仓；涉及多个 → 跨仓任务，归属工作区并标注涉及仓
+    if (repos.length === 1) return addTask(`${ws}/${repos[0]}`, words);
+    return addTask(ws, words, repos);
   }
   if (sub === 'reject') return rejectCmd(args);
   if (STATUS_CMDS.includes(sub)) return setStatus(Number(args[0]), sub, args.slice(1));
@@ -432,7 +472,8 @@ function help() {
   board here [--json]         看"当前目录所属项目"的任务（agent 在项目里用）；--json 输出 API 详情原文
                               在外壳目录里看到工作区任务 + 各子仓任务；在子仓里看到本仓任务 + 工作区的跨仓任务
   board here add <标题>       给当前项目登记任务（同样支持 --bug|--optimize）
-       --repo <子仓>          在工作区里把任务登记到指定子仓（默认登记到工作区，作为跨仓任务）
+       --repo <子仓>          在工作区里把任务登记到指定子仓；写多个（--repo a --repo b 或 --repo a,b）
+                              = 跨仓任务：落工作区并标注涉及仓；不写 = 落工作区、不标仓
   board here <状态> <id>      改当前会话任务状态
   board <状态> <id>           改任意任务状态
        --as <名字>            doing 认领任务 / done 署验收人（置于 id 之后）；缺省读取 BOARD_ACTOR
@@ -440,6 +481,7 @@ function help() {
        状态流转：collected 已收集 → backlog 待规划 → todo 待开发 → doing 进行中 → review 待验收 → done 已完成
        （已收集=收件箱，人工分诊采纳后晋级到待规划；agent 干完置 review 待验收，由人验收后 done）
   board move <id> <项目>      把任务改挂到另一个项目（如从工作区下放到 外壳/子仓）
+  board tags <id> [子仓...]   设置任务的涉及仓标签（跨仓任务标出碰哪几个子仓；不带参数=清空）
   board merge <旧行id> <项目> 把旧项目行（列表里形如 #13：目录已消失/身份已变更）的任务并入现役项目，合并前自动备份
                               id 写 13 或 '#13'（裸 #13 会被 shell 当注释）
   board backup                备份看板数据库到 ~/.project-board/backups/
@@ -462,6 +504,7 @@ async function main() {
     if (cmd === 'reject') return await rejectCmd(rest);
     if (cmd === 'merge') return await mergeCmd(rest);
     if (cmd === 'move') return await moveCmd(rest);
+    if (cmd === 'tags') return await tagsCmd(rest);
     // 状态命令须后接整数 id（board done 5）才生效；否则把 cmd 当项目名，避免与"项目恰好叫 done/review"冲突
     if (STATUS_CMDS.includes(cmd) && /^\d+$/.test(rest[0] ?? ''))
       return await setStatus(Number(rest[0]), cmd, rest.slice(1));

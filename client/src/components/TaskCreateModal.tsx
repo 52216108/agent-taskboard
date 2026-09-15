@@ -46,6 +46,7 @@ interface PendingImage {
 export default function TaskCreateModal({
   projectName,
   projects,
+  repoTags,
   targetStatus,
   open,
   onClose,
@@ -55,6 +56,8 @@ export default function TaskCreateModal({
   projectName?: string;
   /** 传了就显示项目选择器（全局入口）；不传＝项目上下文已定，不问 */
   projects?: ProjectInfo[];
+  /** 工作区页传：选中落到工作区时出现「涉及仓」多选（options 值=子仓目录名，与 CLI --repo 一致） */
+  repoTags?: { workspace: string; options: Array<{ value: string; label: string }> };
   /**
    * 落到哪一列；不传＝后端默认「已收集」。看板列头的「＋」传对应列。
    * 类型排除 done：置为已完成只能由人从「待验收」走 accept 端点验收，
@@ -73,6 +76,7 @@ export default function TaskCreateModal({
   const [taskType, setTaskType] = useState<TaskType>('feature');
   const [assignee, setAssignee] = useState('');
   const [due, setDue] = useState<string | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
   const [pending, setPending] = useState<PendingImage[]>([]);
   const [saving, setSaving] = useState(false);
   const keyRef = useRef(0);
@@ -96,6 +100,7 @@ export default function TaskCreateModal({
     setTaskType('feature');
     setAssignee('');
     setDue(null);
+    setTags([]);
     resetPending();
   }, [open, projectName, resetPending]);
 
@@ -148,6 +153,7 @@ export default function TaskCreateModal({
       return;
     }
     setSaving(true);
+    const onWorkspace = !!repoTags && project === repoTags.workspace;
     createTask(project, {
       title: t,
       description: description.trim() || null,
@@ -156,6 +162,8 @@ export default function TaskCreateModal({
       dueDate: due,
       assignee: assignee.trim() || null,
       status: targetStatus,
+      // 只有落到工作区的任务才带涉及仓标签；选了具体子仓就是该仓的任务，标签无意义
+      ...(onWorkspace && tags.length > 0 ? { tags } : {}),
     })
       .then(async (created) => {
         // 拿到 id 后逐张上传缓冲图片；单张失败不阻断其余（任务已建成，只提示）
@@ -218,6 +226,24 @@ export default function TaskCreateModal({
             autoFocus
           />
         </div>
+        {/* 落到工作区的跨仓任务：勾选涉及哪些子仓。只涉及一个仓的应该直接把项目选成该子仓 */}
+        {repoTags && project === repoTags.workspace && repoTags.options.length > 0 && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              涉及仓（跨仓任务勾选碰到的子仓；子仓目录里的 agent 只看涉及本仓的跨仓任务）
+            </Text>
+            <Select
+              mode="multiple"
+              value={tags}
+              onChange={setTags}
+              disabled={saving}
+              allowClear
+              placeholder="不选＝未标仓，所有子仓都能看到"
+              style={{ width: '100%' }}
+              options={repoTags.options}
+            />
+          </div>
+        )}
         <div>
           <Text type="secondary" style={{ fontSize: 12 }}>
             描述（agent 看任务时的上下文）

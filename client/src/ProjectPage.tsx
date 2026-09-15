@@ -74,7 +74,8 @@ export default function ProjectPage() {
   const isWorkspace = data?.kind === 'workspace';
   const children = useMemo(() => data?.children ?? [], [data]);
 
-  // 工作区看板：外壳自己的（跨仓）任务 + 各子仓任务合在一块，卡片带仓标签；可按仓筛选。
+  // 工作区看板：外壳自己的（跨仓）任务 + 各子仓任务合在一块，卡片带仓标签；可按仓筛选——
+  // 筛某个子仓时，除该仓自己的任务外，还带上工作区里「涉及仓」标签含它的跨仓任务。
   // 子仓/顶层仓：就是自己的任务。
   const boardTasks = useMemo<BoardTask[]>(() => {
     if (!data) return [];
@@ -82,8 +83,14 @@ export default function ProjectPage() {
     const own: Array<BoardTask & { of: string }> = data.tasks.map((t) => ({ ...t, projectLabel: '工作区', of: 'self' }));
     const kids = children.flatMap((c) => c.tasks.map((t) => ({ ...t, projectLabel: c.displayName, of: c.name })));
     const all = [...own, ...kids];
-    return repoFilter === 'all' ? all : all.filter((t) => t.of === repoFilter);
+    if (repoFilter === 'all') return all;
+    if (repoFilter === 'self') return all.filter((t) => t.of === 'self');
+    return all.filter((t) => t.of === repoFilter || (t.of === 'self' && touches(t.tags, repoFilter)));
   }, [data, isWorkspace, children, repoFilter]);
+
+  // 子仓筛选按钮的计数：该仓自己的 + 涉及它的工作区任务，与看板实际渲染的一致
+  const childCount = (c: { name: string; tasks: unknown[] }) =>
+    c.tasks.length + (data?.tasks ?? []).filter((t) => touches(t.tags, c.name)).length;
 
   // 工作区页的新建弹窗：让用户选落到工作区还是某个子仓；正筛着某个子仓时默认就是它
   const family = useMemo(() => {
@@ -91,6 +98,14 @@ export default function ProjectPage() {
     const names = new Set([data.name, ...children.map((c) => c.name)]);
     return projects.filter((p) => names.has(p.name));
   }, [data, isWorkspace, children, projects]);
+  // 落到工作区的跨仓任务可勾选涉及哪些子仓（值=子仓目录名，与 CLI --repo 一致）
+  const repoTags = useMemo(
+    () =>
+      data && isWorkspace
+        ? { workspace: data.name, options: children.map((c) => ({ value: repoBasename(c.name), label: c.displayName })) }
+        : undefined,
+    [data, isWorkspace, children],
+  );
   const createTarget = isWorkspace && repoFilter !== 'all' && repoFilter !== 'self' ? repoFilter : name;
 
   const startEdit = () => {
@@ -210,7 +225,7 @@ export default function ProjectPage() {
               [
                 { key: 'all', label: '全部' },
                 { key: 'self', label: '工作区（跨仓）', n: data.tasks.length },
-                ...children.map((c) => ({ key: c.name, label: c.displayName, n: c.tasks.length })),
+                ...children.map((c) => ({ key: c.name, label: c.displayName, n: childCount(c) })),
               ] as Array<{ key: RepoFilter; label: string; n?: number }>
             ).map((f) => (
               <button
@@ -411,6 +426,7 @@ export default function ProjectPage() {
       <TaskCreateModal
         projectName={createTarget}
         projects={family}
+        repoTags={repoTags}
         targetStatus={createIn ?? undefined}
         open={createIn !== null}
         onClose={() => setCreateIn(null)}
@@ -418,6 +434,17 @@ export default function ProjectPage() {
       />
     </>
   );
+}
+
+/** 子仓项目名 `外壳/子仓` 的最后一段 = 子仓目录名（涉及仓标签用它） */
+function repoBasename(name: string): string {
+  return name.split('/').pop() ?? name;
+}
+
+/** 工作区任务是否"涉及"某个子仓：未标仓 = 涉及所有仓（与服务端子仓视图、SCHEMA 契约同口径） */
+function touches(tags: string[] | undefined, childName: string): boolean {
+  const list = tags ?? [];
+  return list.length === 0 || list.includes(repoBasename(childName));
 }
 
 /** 从任务列表现算六列计数（子仓详情只带任务、不带 managed 汇总）。 */

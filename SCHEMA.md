@@ -41,7 +41,7 @@ P1 无库；P2 起引入。**SQLite 无原生列注释，故本文件与 schema.
 | due_date | TEXT NULL | 截止 ISO8601 |
 | assignee | TEXT NULL | 认领人/执行者（惯用值 `claude`/`codex`/人名，也允许其他自由文本）；NULL=未认领。老库由 db.ts 补列 |
 | reject_reason | TEXT NULL | 最近一次验收打回原因（打回接口 review→todo 时写入）；任务重新置 review 或 done 时自动清空；NULL=无打回在身。老库由 db.ts 补列 |
-| tags | TEXT NULL | JSON 字符串数组 |
+| tags | TEXT NULL | 标签，JSON 字符串数组；当前用途：挂在工作区（多仓外壳）上的跨仓任务标注「涉及哪些子仓」，值=子仓目录名（与 CLI `--repo` 一致），空/NULL=未标仓（所有子仓都能看到）。API 校验 ≤20 项、每项 1..40 字符；读路径只认字符串数组，早期无校验写入的其它 JSON 一律当未标仓。**子仓目录改名后标签不会跟着迁**，需手动改（`board tags`） |
 | images | TEXT NULL | 任务附图，JSON 数组 `[{name,addedAt}]`：name=磁盘文件名(`<uuid>.<ext>`)，绝对路径=`~/.project-board/task-images/<task.id>/<name>`；NULL=无图。老库由 db.ts migrate ALTER 补列 |
 | subtasks | TEXT NULL | 子任务清单，JSON 数组 `[{id,title,done}]`：id=父内唯一整数、title=标题(1..200)、done=是否完成；轻量检查项非独立 task 行，客户端整组经 PATCH 提交；NULL=无子任务。老库由 db.ts migrate ALTER 补列 |
 | source | TEXT | `manual`(手动)/`todo_md`(从 todo.md 导入) |

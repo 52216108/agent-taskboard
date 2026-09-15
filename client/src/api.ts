@@ -157,6 +157,8 @@ export interface NewTask {
   assignee?: string | null;
   /** 落到哪一列；省略＝后端默认「已收集」。看板列头的「＋」用它直接建进该列。 */
   status?: TaskStatus;
+  /** 涉及仓标签（跨仓任务标出碰哪几个子仓，值=子仓目录名） */
+  tags?: string[];
 }
 export const createTask = (name: string, body: NewTask): Promise<Task> =>
   post<Task>(`/api/projects/${encodeURIComponent(name)}/tasks`, body);
@@ -170,6 +172,7 @@ export interface TaskPatch {
   dueDate?: string | null;
   assignee?: string | null;
   subtasks?: SubTask[];
+  tags?: string[];
 }
 export const updateTask = (id: number, body: TaskPatch): Promise<Task> =>
   patch<Task>(`/api/tasks/${id}`, body);

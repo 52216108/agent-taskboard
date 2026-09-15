@@ -110,6 +110,12 @@ function TaskCard({
           {task.priority.toUpperCase()}
         </span>
         {task.assignee && <span className="chip">@{task.assignee}</span>}
+        {/* 涉及仓标签放页脚：这一行可换行，仓名长也不会像顶行那样溢出卡片（虚线框区别于顶行实底的归属标签） */}
+        {(task.tags ?? []).map((tag) => (
+          <span key={tag} className="chip chip-tag" title={`涉及仓：${tag}`}>
+            {tag}
+          </span>
+        ))}
         {task.subtasks.length > 0 && (
           <span className="tcard-meta">
             <CheckSquareOutlined />

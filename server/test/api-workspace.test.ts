@@ -112,6 +112,42 @@ describe('工作区 / 子仓的路由与详情', () => {
   });
 });
 
+describe('跨仓任务的「涉及仓」标签（tags）', () => {
+  it('校验：非数组/非字符串/空串/超长 → 400；合法则 trim + 去重落库', async () => {
+    const post = (tags: unknown) =>
+      app.inject({ method: 'POST', url: '/api/projects/acme/tasks', payload: { title: 't', tags } });
+    expect((await post('acme-app')).statusCode).toBe(400);
+    expect((await post([1])).statusCode).toBe(400);
+    expect((await post([''])).statusCode).toBe(400);
+    expect((await post(['x'.repeat(41)])).statusCode).toBe(400);
+    expect((await post(Array.from({ length: 21 }, (_, i) => `t${i}`))).statusCode).toBe(400);
+    const ok = await post([' acme-app ', 'server', 'acme-app']);
+    expect(ok.statusCode).toBe(200);
+    expect((ok.json() as { tags: string[] }).tags).toEqual(['acme-app', 'server']);
+    // PATCH 同样校验与归一
+    const id = (ok.json() as { id: number }).id;
+    expect((await app.inject({ method: 'PATCH', url: `/api/tasks/${id}`, payload: { tags: 'x' } })).statusCode).toBe(400);
+    const patched = await app.inject({ method: 'PATCH', url: `/api/tasks/${id}`, payload: { tags: ['server '] } });
+    expect((patched.json() as { tags: string[] }).tags).toEqual(['server']);
+  });
+
+  it('子仓详情只带涉及本仓（或未标仓）的工作区任务；工作区详情不过滤', async () => {
+    createTask(wsPath(), wsPath(), { title: '没标仓', status: 'todo' });
+    createTask(wsPath(), wsPath(), { title: '只涉及 server', status: 'todo', tags: ['server'] });
+    createTask(wsPath(), wsPath(), { title: '两个都涉及', status: 'todo', tags: ['acme-app', 'server'] });
+    const app1 = (await app.inject({ method: 'GET', url: '/api/projects/acme%2Facme-app' })).json() as {
+      workspace: { tasks: Array<{ title: string }> };
+    };
+    expect(app1.workspace.tasks.map((t) => t.title).sort()).toEqual(['两个都涉及', '没标仓']);
+    const srv = (await app.inject({ method: 'GET', url: '/api/projects/acme%2Fserver' })).json() as {
+      workspace: { tasks: Array<{ title: string }> };
+    };
+    expect(srv.workspace.tasks.map((t) => t.title).sort()).toEqual(['两个都涉及', '只涉及 server', '没标仓']);
+    const ws = (await app.inject({ method: 'GET', url: '/api/projects/acme' })).json() as { tasks: unknown[] };
+    expect(ws.tasks).toHaveLength(3);
+  });
+});
+
 describe('merge / move', () => {
   it('stale 旧行以 #id 出现在列表，merge 后并入现役项目并消失', async () => {
     createTask('gitee.com/acme/solo', join(root, 'solo'), { title: '迁移前的任务', status: 'todo' });
