@@ -875,6 +875,9 @@ button {
 }
 
 @media (max-width: 860px) {
+  .sb-collapse-toggle {
+    display: none;
+  }
   .sb-toggle {
     display: inline-flex;
     margin-left: -4px;
@@ -892,8 +895,11 @@ button {
   }
 }
 
-/* 宽屏下侧边栏常驻，遮罩即使被渲染出来也不该盖住页面 */
+/* 宽屏收起时释放侧栏空间；不影响窄屏抽屉的独立开合。 */
 @media (min-width: 861px) {
+  .sb.is-collapsed {
+    display: none;
+  }
   .sb-scrim {
     display: none;
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { App as AntApp, Input, Modal, Tooltip, Typography } from 'antd';
 import {
@@ -7,7 +7,9 @@ import {
   BellFilled,
   BellOutlined,
   KeyOutlined,
+  MenuFoldOutlined,
   MenuOutlined,
+  MenuUnfoldOutlined,
   MoonOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -97,7 +99,7 @@ function NavItem({
 }
 
 /**
- * 应用外壳：左侧常驻导航 + 右侧「面包屑顶栏 + 页面内容」。
+ * 应用外壳：左侧可收起导航 + 右侧「面包屑顶栏 + 页面内容」。
  * 所有路由页都渲染在这层里面，页面自己只负责工具条和主体。
  */
 export default function AppShell({
@@ -128,6 +130,12 @@ export default function AppShell({
   const [tokenOpen, setTokenOpen] = useState(false);
   const [tokenVal, setTokenVal] = useState(localStorage.getItem('board-token') ?? '');
   const [navOpen, setNavOpen] = useState(false); // 仅窄屏用：侧边栏变抽屉后的开合
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('board-sidebar-collapsed') === '1',
+  );
+  useEffect(() => {
+    localStorage.setItem('board-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+  }, [sidebarCollapsed]);
 
   const saveToken = () => {
     const v = tokenVal.trim();
@@ -181,7 +189,7 @@ export default function AppShell({
     <div className="shell">
       {/* 窄屏下侧边栏变抽屉，遮罩点掉即关；宽屏 CSS 里不渲染它的效果 */}
       {navOpen && <div className="sb-scrim" onClick={() => setNavOpen(false)} />}
-      <aside className={`sb${navOpen ? ' is-open' : ''}`}>
+      <aside id="board-sidebar" className={`sb${navOpen ? ' is-open' : ''}${sidebarCollapsed ? ' is-collapsed' : ''}`}>
         <div className="sb-head">
           <div className="sb-brand">
             <span className="sb-mark">
@@ -312,11 +320,23 @@ export default function AppShell({
 
       <main className="main">
         <header className="topbar">
+          <Tooltip title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
+            <button
+              className="btn btn-ghost btn-icon sb-collapse-toggle"
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+              aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="board-sidebar"
+            >
+              {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
+          </Tooltip>
           <button
             className="btn btn-ghost btn-icon sb-toggle"
             onClick={() => setNavOpen(true)}
             aria-label="打开导航"
             aria-expanded={navOpen}
+            aria-controls="board-sidebar"
           >
             <MenuOutlined />
           </button>
