@@ -23,17 +23,16 @@ function token(): string | null {
   }
 }
 
-function headers(write = false): Record<string, string> {
+// 服务端设了 BOARD_TOKEN 时读写都要鉴权，故有令牌就每个请求都带（不只写操作）
+function headers(): Record<string, string> {
   const h: Record<string, string> = { 'content-type': 'application/json' };
-  if (write) {
-    const t = token();
-    if (t) h.authorization = `Bearer ${t}`;
-  }
+  const t = token();
+  if (t) h.authorization = `Bearer ${t}`;
   return h;
 }
 
 async function api<T>(path: string, init?: RequestInit & { write?: boolean }): Promise<T> {
-  const res = await fetch(BASE + path, { ...init, headers: { ...headers(init?.write), ...init?.headers } });
+  const res = await fetch(BASE + path, { ...init, headers: { ...headers(), ...init?.headers } });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error || `${res.status} ${res.statusText}`);
